@@ -1,24 +1,72 @@
 <script setup>
+import {useUserStore} from "@/stores/user.js";
+import {ref} from "vue";
+import {useRouter} from "vue-router";
+import api from "@/js/http/api.js";
 
+const username = ref('')
+const password = ref('')
+const repassword = ref('')
+const errorMessage = ref('')
+
+const user = useUserStore()
+const router = useRouter()
+
+async function handleRegister(){
+  errorMessage.value=''
+  if(!username.value.trim()){
+    errorMessage.value='用户名不得为空'
+  } else if(!password.value.trim()){
+    errorMessage.value='密码不得为空'
+  } else if(password.value.trim() !== repassword.value.trim()){
+    errorMessage.value='两次输入的密码不同'
+    repassword.value=''
+  } else{
+    try{
+        const res = api.post('/api/user/account/register/',{
+        username:username.value,
+        password:password.value,
+      })
+      const data = (await res).data
+      if(data.result === 'success'){
+        user.setAccessToken(data.access)
+        user.setUserInfo(data)
+        await router.push({
+          name: 'home-index'
+        })
+      }else {
+        //   errorMessage.value = data.result
+        // console.log('错误')
+        errorMessage.value = data.result
+      console.log('错误信息:', errorMessage.value)
+      }
+    }
+    catch (err){
+      console.log(err)
+    }
+  }
+}
 </script>
 
 <template>
   <div class="flex justify-center mt-30">
-    <fieldset class="fieldset bg-base-200 border-base-300 rounded-box w-xs border p-4">
+    <form @submit.prevent="handleRegister" class="fieldset bg-base-200 border-base-300 rounded-box w-xs border p-4">
       <label class="label">用户名</label>
-      <input type="text" class="input" placeholder="用户名" />
+      <input v-model="username" type="text" class="input" placeholder="用户名" />
 
       <label class="label">密码</label>
-      <input type="password" class="input" placeholder="密码" />
+      <input v-model="password" type="password" class="input" placeholder="密码" />
 
       <label class="label">确认密码</label>
-      <input type="password" class="input" placeholder="确认密码" />
+      <input v-model="repassword" type="password" class="input" placeholder="确认密码" />
+
+      <p v-if="errorMessage" class="font-bold text-red-500 text-base">{{errorMessage}}</p>
 
       <button class="btn btn-neutral mt-4">注册</button>
       <div class="flex justify-end">
         <RouterLink :to="{name: 'user-account-login-index'}" class="btn btn-sm btn-ghost text-gray-500 mt-2">登录</RouterLink>
       </div>
-    </fieldset>
+    </form>
   </div>
 </template>
 

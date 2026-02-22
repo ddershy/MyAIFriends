@@ -3,12 +3,30 @@ import {useUserStore} from "@/stores/user.js";
 import UserSpaceIcon from "@/components/navbar/icons/UserSpaceIcon.vue";
 import UserLogoutIcon from "@/components/navbar/icons/UserLogoutIcon.vue";
 import UserProfileIcon from "@/components/navbar/icons/UserProfileIcon.vue";
+import api from "@/js/http/api.js";
+import {useRouter} from "vue-router";
 
 const user = useUserStore()
+const router = useRouter()
 
 function closeMenu() { //下拉后自动关闭菜单
   const element = document.activeElement
   if (element && element instanceof HTMLElement) element.blur()
+}
+
+async function handleLogout(){
+  try {
+    const ref = await api.post('/api/user/account/logout/')
+    if(ref.data.result === 'success'){
+      user.logout()
+      await router.push({
+          name: 'home-index'
+        })
+    }
+  }
+  catch (err){
+    console.log(err)
+  }
 }
 </script>
 
@@ -44,10 +62,10 @@ function closeMenu() { //下拉后自动关闭菜单
         </li>
         <li></li>
         <li>
-          <RouterLink @click="closeMenu"  :to="{name:'home-index'}" class="text-sm font-bold py-3 ">
+          <a @click="handleLogout"  class="text-sm font-bold py-3 ">
             <UserLogoutIcon/>
             退出登录
-          </RouterLink>
+          </a>
         </li>
       </ul>
     </div>

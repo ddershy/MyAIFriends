@@ -200,22 +200,6 @@ urlpatterns = [
 在 `AIFriends/backend/backend/urls.py`中：
 
 ```py
-"""
-URL configuration for backend project.
-
-The `urlpatterns` list routes URLs to views. For more information please see:
-    https://docs.djangoproject.com/en/6.0/topics/http/urls/
-Examples:
-Function views
-    1. Add an import:  from my_app import views
-    2. Add a URL to urlpatterns:  path('', views.home, name='home')
-Class-based views
-    1. Add an import:  from other_app.views import Home
-    2. Add a URL to urlpatterns:  path('', Home.as_view(), name='home')
-Including another URLconf
-    1. Import the include() function: from django.urls import include, path
-    2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
-"""
 from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
@@ -859,3 +843,568 @@ class LogoutView(APIView):
         return response
 ```
 4. `refresh_token.py`：使用`cookie`中的`refresh_token`刷新`access_token`。
+```py
+from multiprocessing.reduction import steal_handle
+
+from django.conf import settings
+from rest_framework import status
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+class RefreshToken(APIView):
+    def post(self, request):
+        try:
+            refresh_token = request.COOKIES.get('refresh_token')#获取refresh_token
+            if not refresh_token:#空字符串
+                return Response({
+                    'result': 'refresh token 不存在'
+                },status=status.HTTP_401_UNAUTHORIZED) #必须401
+            refresh=RefreshToken(refresh_token) #如果refresh token过期了/不合法会报异常
+            if settings.SIMPLE_JWT['ROTATE_REFRESH_TOKENS']:
+                refresh.set_jti()#刷新为有效
+                response=Response({
+                    'result': 'success',
+                    'access': str(refresh.access_token)
+                })
+                response.set_cookie(
+                    key='refresh_token',
+                    value=str(refresh),  # refresh返回的是refresh，refresh.access_token返回access，
+                    httponly=True,
+                    samesite='Lax',
+                    max_age=86400 * 7,  # 七天内有效
+                )
+                return response
+            return Response({
+                'result': 'success',
+                'access': str(refresh.access_token)
+            })
+        except:
+            return Response({
+                'result':'refresh token 已过期'
+            },status=status.HTTP_401_UNAUTHORIZED) # 必须401
+```
+
+#### 3.3 更新urls
+在文件`AIFriends/backend/web/urls.py`中添加路由。
+后端前面不加`/`
+```py
+from django.urls import path, re_path
+
+from web.views.account.login import LoginView
+from web.views.account.logout import LogoutView
+from web.views.account.refresh_token import RefreshTokenView
+from web.views.account.register import RegisterView
+from web.views.index import index
+
+urlpatterns = [
+    path('api/user/account/login/',LoginView.as_view()),#前加api为了与系统默认做区分
+    path('api/user/account/logout/',LogoutView.as_view()),
+    path('api/user/account/register/',RegisterView.as_view()),
+    path('api/user/account/refersh_token/',RefreshTokenView.as_view()),
+    path('',index),
+    re_path(r'^(?!media/|static/|assets/).*$', index)
+]
+```
+
+### 4. 对接前后端
+#### 4.1 实现前端全局状态存储
+用于维护登陆状态，用一个全局变量来存储。
+
+参考counter.js实现`AIFriends/frontend/src/stores/user.js`。
+  1. (a,b,c) => {} 等价于 定义了一个函数，()内为参数
+  2. 删除AIFriends/frontend/src/stores/counter.js。
+```js
+import {defineStore} from "pinia";
+import {ref} from "vue";
+import valentine from "daisyui/theme/valentine/index.js";
+
+export const useUserStor = defineStore('user',()=>{
+    const id = ref(0) //响应式变量
+    const username = ref('')
+    const photo = ref('')
+    const profile = ref('')
+    const accessToken = ref('')
+    
+    function isLogin(){//判断是否登录
+        return !!accessToken.value //必须先value，!a 用于判断a是否为空，!!用于取反
+    }
+    
+    function setAccessToken(token){
+        accessToken.value=token
+    }
+    
+    function setUserInfo(data){
+        id.value=data.user_id
+        username.value=data.username
+        photo.value=data.photo
+        profile.value=data.profile
+    }
+    
+    function logout(){
+        id.value=0
+        username.value=''
+        photo.value=''
+        profile.value=''
+        accessToken.value=''
+    }
+    return { //必须全部返回
+        id,
+        username,
+        photo,
+        profile,
+        accessToken,
+        setAccessToken,
+        setUserInfo,
+        logout,
+        isLogin,
+    }
+})
+```
+
+#### 4.2 添加登录后导航栏的功能
+
+1. 在`frontend/src/components/navbar/NavBar.vue`中添加刚刚定义的函数`const user = useUserStore()`
+2. 在登录按钮加判断登录语句 v-if(a),a为真则渲染组件，v-else，if失败直接渲染else；
+3. 单独用UserMenu.vue头像部分
+```html
+<script setup>
+import {useUserStore} from "@/stores/user.js";
+
+const user = useUserStore()
+</script>
+
+<template>
+  <div class="dropdown dropdown-end">
+    <div tabindex="0" role="button" class="avatar w-8 btn btn-circle w-8 h-8 mr-6">
+      <div class="w-8 rounded-full">
+        <img :src="user.photo" alt="" /> <!--变量的引用方式为‘:src = "usr.sth"’-->
+      </div>
+    </div>
+      <ul tabindex="-1" class="dropdown-content menu bg-base-100 rounded-box z-1 w-52 p-2 shadow-sm">
+        <li><a>Item 1</a></li>
+        <li><a>Item 2</a></li>
+      </ul>
+    </div>
+</template>
+
+<style scoped>
+
+</style>
+```
+4. 给头像下拉框添加逻辑
+5. 点击后自动关闭`@click="closeMenu"`
+```c++
+function closeMenu() { //下拉后自动关闭菜单
+  const element = document.activeElement
+  if (element && element instanceof HTMLElement) element.blur()
+}
+```
+`frontend/src/components/navbar/UserMenu.vue`
+```html
+<script setup>
+import {useUserStore} from "@/stores/user.js";
+import UserSpaceIcon from "@/components/navbar/icons/UserSpaceIcon.vue";
+import UserLogoutIcon from "@/components/navbar/icons/UserLogoutIcon.vue";
+import UserProfileIcon from "@/components/navbar/icons/UserProfileIcon.vue";
+
+const user = useUserStore()
+
+function closeMenu() { //下拉后自动关闭菜单
+  const element = document.activeElement
+  if (element && element instanceof HTMLElement) element.blur()
+}
+</script>
+
+<template>
+  <div class="dropdown dropdown-end">
+    <div tabindex="0" role="button" class="avatar w-8 btn btn-circle w-8 h-8 mr-6">
+      <div class="w-8 rounded-full">
+        <img :src="user.photo" alt="" /> <!--变量的引用方式为‘:src = "usr.sth"’-->
+      </div>
+    </div>
+      <ul tabindex="-1" class="dropdown-content menu bg-base-100 rounded-box z-1 w-52 p-2 shadow-sm">
+        <li>
+          <RouterLink @click="closeMenu" :to="{name:'user-space-index',params: {user_id:user.id}}">
+            <div class="avatar">
+              <div class="w-9 rounded-full">
+                <img :src="user.photo" alt="" /> <!--变量的引用方式为‘:src = "usr.sth"’-->
+              </div>
+            </div>
+            <span class="text-base font-bold">{{user.username}}</span> <!--括号内放函数-->
+          </RouterLink>
+        </li>
+        <li>
+          <RouterLink @click="closeMenu"  :to="{name:'user-space-index',params:{user_id:user.id}}" class="text-sm font-bold py-3 "> <!--注意加user_id的参数-->
+            <UserSpaceIcon/>
+            个人空间
+          </RouterLink>
+        </li>
+        <li>
+          <RouterLink @click="closeMenu"  :to="{name:'user-profile-index'}" class="text-sm font-bold py-3 ">
+            <UserProfileIcon/>
+            编辑资料
+          </RouterLink>
+        </li>
+        <li></li>
+        <li>
+          <RouterLink @click="closeMenu"  :to="{name:'home-index'}" class="text-sm font-bold py-3 ">
+            <UserLogoutIcon/>
+            退出登录
+          </RouterLink>
+        </li>
+      </ul>
+    </div>
+</template>
+
+<style scoped>
+
+</style>
+```
+
+#### 4.3 封装http请求
+创建js/http目录frontend/src/js/http，在http文件夹下创建文件api.js；
+```js
+/*
+ * 功能：在每个请求头里自动添加`access token`。
+ * 然后拦截请求结果，如果返回结果是身份认证失败（401），
+ * 则说明`access_token`过期了，
+ * 那么先用`cookie`中的`refresh_token`刷新`access_token`。
+ * 如果刷新失败则说明`refreh_token`也过期了，
+ * 则调用`user.logout()`在浏览器内存中删除登录状态；
+ * 如果刷新成功，则重新发送原请求。
+*/
+
+import axios from "axios"
+import {useUserStore} from "@/stores/user.js";
+
+const BASE_URL = 'http://127.0.0.1:8000'
+
+const api = axios.create({
+    baseURL: BASE_URL,
+    withCredentials: true,
+})
+
+api.interceptors.request.use(config => {
+    const user = useUserStore()
+    if (user.accessToken) {
+        config.headers.Authorization = `Bearer ${user.accessToken}`
+    }
+    return config
+})
+
+let isRefreshing = false
+let refreshSubscribers = []
+
+function subscribeTokenRefresh(callback) {
+    refreshSubscribers.push(callback)
+}
+
+function onRefreshed(token) {
+    refreshSubscribers.forEach(cb => cb(token))
+    refreshSubscribers = []
+}
+
+function onRefreshFailed(err) {
+    refreshSubscribers.forEach(cb => cb(null, err))
+    refreshSubscribers = []
+}
+
+api.interceptors.response.use(
+    response => response,
+    async error => {
+        const user = useUserStore()
+        const originalRequest = error?.config
+        if (!originalRequest) {
+            return Promise.reject(error)
+        }
+
+        if (error.response?.status === 401 && !originalRequest._retry) {
+            originalRequest._retry = true
+
+            return new Promise((resolve, reject) => {
+                subscribeTokenRefresh((token, error) => {
+                    if (error) {
+                        reject(error)
+                    } else {
+                        originalRequest.headers.Authorization = `Bearer ${token}`
+                        resolve(api(originalRequest))
+                    }
+                })
+
+                if (!isRefreshing) {
+                    isRefreshing = true
+                    axios.post(
+                        `${BASE_URL}/api/user/account/refresh_token/`,
+                        {},
+                        {withCredentials: true, timeout: 5000}
+                    ).then(res => {
+                        user.setAccessToken(res.data.access)
+                        onRefreshed(res.data.access)
+                    }).catch(error => {
+                        user.logout()
+                        onRefreshFailed(error)
+                        reject(error)
+                    }).finally(() => {
+                        isRefreshing = false
+                    })
+                }
+            })
+        }
+
+        return Promise.reject(error)
+    }
+)
+
+export default api
+```  
+
+#### 4.4 对接前后端
+`AIFriends/frontend/src/user/account/LoginIndex.vue`：对接登录功能
+  1. `v-model`将变量名与placeholder连接起来；
+  2. aync function()异步函数；
+  3. 回车触发方式，将整个表单修改为`<form @submit.prevent="funct">`，`.prevent`为禁止回车键刷新页面；
+  4. 其实是几个函数间的引用与跳转；
+```html
+<script setup>
+import {useUserStore} from "@/stores/user.js";
+import {ref} from "vue";
+import {useRouter} from "vue-router";
+import api from "@/js/http/api.js";
+
+const username = ref('')
+const password = ref('')
+const user = useUserStore()
+const errorMessage = ref('')
+const router = useRouter()
+
+async function handleLogin(){
+  errorMessage.value=''
+  if(!username.value.trim()){
+    errorMessage.value='用户名不得为空'
+  }else if(!password.value.trim()){
+    errorMessage.value='密码不得为空'
+  }else {
+    try {
+      const res = api.post('/api/user/account/login/',{ //api要定义
+        username:username.value,
+        password:password.value,
+      })
+      const data = (await res).data;
+      if(data.result === 'success'){
+        user.setAccessToken(data.access)
+        user.setUserInfo(data)
+        await router.push({
+          name: 'home-index'
+        })
+      }else{
+        errorMessage.value = data.result
+      }
+    }
+    catch (err){
+      console.log(err)
+    }
+  }
+}
+</script>
+
+<template>
+    <div class="flex justify-center mt-30">
+      <form @submit.prevent="handleLogin" class="fieldset bg-base-200 border-base-300 rounded-box w-xs border p-4">
+        <label class="label">用户名</label>
+        <input v-model="username" type="text" class="input" placeholder="用户名" />
+
+        <label class="label">密码</label>
+        <input v-model="password" type="password" class="input" placeholder="密码" />
+
+        <button class="btn btn-neutral mt-4">登录</button>
+
+        <p v-if="errorMessage" class="font-bold text-red-500 text-base">{{errorMessage}}</p>
+        <div class="flex justify-end">
+          <RouterLink :to="{name: 'user-account-register-index'}" class="btn btn-sm btn-ghost text-gray-500 mt-2">
+            注册
+          </RouterLink>
+        </div>
+      </form>
+    </div>
+</template>
+
+<style scoped>
+
+</style>
+
+```
+
+`AIFriends/frontend/src/user/account/RegisterIndex.vue`：对接注册功能
+> 修改后发现无法输出用户名重复，询问ai后修改为：
+```py
+backend/web/views/account/register.py
+ser.objects.get(...).exists() 写法错误
+
+if User.objects.get(username=username).exists():
+    ...
+
+get() 返回一个对象或抛出 DoesNotExist，没有 .exists()
+
+正确写法是用 filter()：
+
+if User.objects.filter(username=username).exists():
+    return Response({'result': '用户名已存在'})
+```
+
+```html
+<script setup>
+import {useUserStore} from "@/stores/user.js";
+import {ref} from "vue";
+import {useRouter} from "vue-router";
+import api from "@/js/http/api.js";
+
+const username = ref('')
+const password = ref('')
+const repassword = ref('')
+const errorMessage = ref('')
+
+const user = useUserStore()
+const router = useRouter()
+
+async function handleRegister(){
+  errorMessage.value=''
+  if(!username.value.trim()){
+    errorMessage.value='用户名不得为空'
+  } else if(!password.value.trim()){
+    errorMessage.value='密码不得为空'
+  } else if(password.value.trim() !== repassword.value.trim()){
+    errorMessage.value='两次输入的密码不同'
+    repassword.value=''
+  } else{
+    try{
+        const res = api.post('/api/user/account/register/',{
+        username:username.value,
+        password:password.value,
+      })
+      const data = (await res).data
+      if(data.result === 'success'){
+        user.setAccessToken(data.access)
+        user.setUserInfo(data)
+        await router.push({
+          name: 'home-index'
+        })
+      }else {
+        //   errorMessage.value = data.result
+        // console.log('错误')
+        errorMessage.value = data.result
+      console.log('错误信息:', errorMessage.value)
+      }
+    }
+    catch (err){
+      console.log(err)
+    }
+  }
+}
+</script>
+
+<template>
+  <div class="flex justify-center mt-30">
+    <form @submit.prevent="handleRegister" class="fieldset bg-base-200 border-base-300 rounded-box w-xs border p-4">
+      <label class="label">用户名</label>
+      <input v-model="username" type="text" class="input" placeholder="用户名" />
+
+      <label class="label">密码</label>
+      <input v-model="password" type="password" class="input" placeholder="密码" />
+
+      <label class="label">确认密码</label>
+      <input v-model="repassword" type="password" class="input" placeholder="确认密码" />
+
+      <p v-if="errorMessage" class="font-bold text-red-500 text-base">{{errorMessage}}</p>
+
+      <button class="btn btn-neutral mt-4">注册</button>
+      <div class="flex justify-end">
+        <RouterLink :to="{name: 'user-account-login-index'}" class="btn btn-sm btn-ghost text-gray-500 mt-2">登录</RouterLink>
+      </div>
+    </form>
+  </div>
+</template>
+
+<style scoped>
+
+</style>
+```
+`AIFriends/frontend/src/components/navbar/UserMenu.vue`：对接退出功能
+><Router>和定义后的router.push不能同时使用，需要将标签中的<Router>换成<a>或者其他
+```html
+<script setup>
+import {useUserStore} from "@/stores/user.js";
+import UserSpaceIcon from "@/components/navbar/icons/UserSpaceIcon.vue";
+import UserLogoutIcon from "@/components/navbar/icons/UserLogoutIcon.vue";
+import UserProfileIcon from "@/components/navbar/icons/UserProfileIcon.vue";
+import api from "@/js/http/api.js";
+import {useRouter} from "vue-router";
+
+const user = useUserStore()
+const router = useRouter()
+
+function closeMenu() { //下拉后自动关闭菜单
+  const element = document.activeElement
+  if (element && element instanceof HTMLElement) element.blur()
+}
+
+async function handleLogout(){
+  try {
+    const ref = await api.post('/api/user/account/logout/')
+    if(ref.data.result === 'success'){
+      user.logout()
+      await router.push({
+          name: 'home-index'
+        })
+    }
+  }
+  catch (err){
+    console.log(err)
+  }
+}
+</script>
+
+<template>
+  <div class="dropdown dropdown-end">
+    <div tabindex="0" role="button" class="avatar w-8 btn btn-circle w-8 h-8 mr-6">
+      <div class="w-8 rounded-full">
+        <img :src="user.photo" alt="" /> <!--变量的引用方式为‘:src = "usr.sth"’-->
+      </div>
+    </div>
+      <ul tabindex="-1" class="dropdown-content menu bg-base-100 rounded-box z-1 w-52 p-2 shadow-sm">
+        <li>
+          <RouterLink @click="closeMenu" :to="{name:'user-space-index',params: {user_id:user.id}}">
+            <div class="avatar">
+              <div class="w-9 rounded-full">
+                <img :src="user.photo" alt="" /> <!--变量的引用方式为‘:src = "usr.sth"’-->
+              </div>
+            </div>
+            <span class="text-base font-bold">{{user.username}}</span> <!--括号内放函数-->
+          </RouterLink>
+        </li>
+        <li>
+          <RouterLink @click="closeMenu"  :to="{name:'user-space-index',params:{user_id:user.id}}" class="text-sm font-bold py-3 "> <!--注意加user_id的参数-->
+            <UserSpaceIcon/>
+            个人空间
+          </RouterLink>
+        </li>
+        <li>
+          <RouterLink @click="closeMenu"  :to="{name:'user-profile-index'}" class="text-sm font-bold py-3 ">
+            <UserProfileIcon/>
+            编辑资料
+          </RouterLink>
+        </li>
+        <li></li>
+        <li>
+          <a @click="handleLogout"  class="text-sm font-bold py-3 ">
+            <UserLogoutIcon/>
+            退出登录
+          </a>
+        </li>
+      </ul>
+    </div>
+</template>
+
+<style scoped>
+
+</style>
+```

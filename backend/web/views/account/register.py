@@ -15,9 +15,9 @@ class RegisterView(APIView):
                 return Response({
                     'result':'用户名和密码不能为空'
                 })
-            if User.objects.get(username=username).exists():
+            if User.objects.filter(username=username).exists():
                 return Response({
-                    'result':'用户名已存在'
+                    'result': '用户名已存在'
                 })
             user=User.objects.create_user(username=username,password=password)
             user_profile=UserProfile.objects.create(user=user)
@@ -40,5 +40,5 @@ class RegisterView(APIView):
             return response
         except:
             return Response({
-                'resulr': '系统异常，请稍后重试'
+                'result': '系统异常，请稍后重试'
             })
