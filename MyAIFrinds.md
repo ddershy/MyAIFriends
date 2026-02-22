@@ -1201,7 +1201,6 @@ async function handleLogin(){
       }
     }
     catch (err){
-      console.log(err)
     }
   }
 }
@@ -1408,3 +1407,273 @@ async function handleLogout(){
 
 </style>
 ```
+
+#### 4.5 给前端路由添加守卫
+
+  当前端路径需要登录且当前未登录时，自动跳转到登录页面:
+
+  在`AIFriends/frontend/src/router/index.js`中添加守卫
+  在路由中加入自定义信息meta，在路由前添加一个判断。`router.beforeEach((to,form)=>{`
+```js
+import { createRouter, createWebHistory } from 'vue-router'
+import HomepageIndex from "@/views/homepage/HomepageIndex.vue";
+import FriendsIndex from "@/views/friend/FriendsIndex.vue";
+import CreateIndex from "@/views/create/CreateIndex.vue";
+import NotFoundIndex from "@/views/error/NotFoundIndex.vue";
+import LoginIndex from "@/views/user/account/LoginIndex.vue";
+import RegisterIndex from "@/views/user/account/RegisterIndex.vue";
+import SpaceIndex from "@/views/user/space/SpaceIndex.vue";
+import ProfileIndex from "@/views/user/profile/ProfileIndex.vue";
+import {useUserStore} from "@/stores/user.js";
+
+const router = createRouter({
+  history: createWebHistory(import.meta.env.BASE_URL),
+  routes: [//匹配顺序：自上而下
+    { //路由字典
+      path:'/',//根路径
+      component:HomepageIndex,
+      name:'home-index',
+      meta:{
+        needLogin: false,
+      }
+    },
+    { //路由字典
+      path:'/friend/',//根路径下好友路径
+      component:FriendsIndex,
+      name:'friend-index',
+      meta:{
+        needLogin: true,
+      }
+    },
+    { //路由字典
+      path:'/create/',
+      component:CreateIndex,
+      name:'create-index',
+      meta:{
+        needLogin: true,
+      }
+    },
+    { //路由字典
+      path:'/404/',
+      component:NotFoundIndex,
+      name:'404',
+      meta:{
+        needLogin: false,
+      }
+    },
+    { //路由字典
+      path:'/user/account/login',
+      component:LoginIndex,
+      name:'user-account-login-index',
+      meta:{
+        needLogin: false,
+      }
+    },
+    { //路由字典
+      path:'/user/account/register',
+      component:RegisterIndex,
+      name:'user-account-register-index',
+      meta:{
+        needLogin: false,
+      }
+    },
+    { //路由字典
+      path:'/user/space/:user_id', //':+P'=此处需要有一个参数P
+      component:SpaceIndex,
+      name:'user-space-index',
+      meta:{
+        needLogin: true,
+      }
+    },
+    { //路由字典
+      path:'/user/profile/',
+      component:ProfileIndex,
+      name:'user-profile-index',
+      meta:{
+        needLogin: true,
+      }
+    },
+    {
+      path:'/:pathMatch(.*)*',//正则表达式，可以匹配任意路径。
+      component:NotFoundIndex,
+      name:'not-found',
+    }
+  ],
+})
+
+router.beforeEach((to,form)=>{
+  const user = useUserStore()
+  if(to.meta.needLogin && !user.isLogin()){
+    return {
+      name:'user-account-login-index',
+    }
+  }
+  return true
+})
+export default router
+```
+
+#### 4.6  第一次打开网站时，从云端加载用户信息
+
+1. 在`AIFriends/backend/web/views/user/account/`目录下实现`get_user_info.py`；
+```py
+from rest_framework.response import Response
+from rest_framework.views import APIView
+from rest_framework.permissions import IsAuthenticated
+
+from web.models.user import UserProfile
+
+
+class GetUserInfoView(APIView):
+    permission_classes = [IsAuthenticated] #如果 request.user 是认证用户 → 允许访问;如果是匿名用户 → 返回 401 Unauthorized
+    def get(self, request):
+        try:
+            user = request.user
+            user_profile = UserProfile.objects.get(user=user)
+            return Response({
+                'result':'success',
+                'user_id':user.id,
+                'username':user.username,
+                'photo':user_profile.photo.url,
+                'profile':user_profile.profile,
+            })
+        except:
+            return Response({
+                'result':'系统异常，请稍后重试'
+            })
+```
+并修改url
+```py
+# backend/web/urls.py
+from django.urls import path, re_path
+
+from web.views.account.get_user_info import GetUserInfoView
+from web.views.account.login import LoginView
+from web.views.account.logout import LogoutView
+from web.views.account.refresh_token import RefreshTokenView
+from web.views.account.register import RegisterView
+from web.views.index import index
+
+urlpatterns = [
+    path('api/user/account/login/',LoginView.as_view()),#前加api为了与系统默认做区分
+    path('api/user/account/logout/',LogoutView.as_view()),
+    path('api/user/account/register/',RegisterView.as_view()),
+    path('api/user/account/refersh_token/',RefreshTokenView.as_view()),
+    path('api/user/account/get_user_info/',GetUserInfoView.as_view()),
+    path('',index),
+    re_path(r'^(?!media/|static/|assets/).*$', index)
+]
+```
+2. 在`AIFriends/frontend/src/store/user.js`中添加`hasPulledUserInfo`状态。
+```js
+import {defineStore} from "pinia";
+import {ref} from "vue";
+import valentine from "daisyui/theme/valentine/index.js";
+
+export const useUserStore = defineStore('user',()=>{
+    const id = ref(0) //响应式变量 是否登录
+    const username = ref('')
+    const photo = ref('')
+    const profile = ref('')
+    const accessToken = ref('')
+    const hasPulledUserInfo = ref('')
+
+    function isLogin(){//判断是否登录,登录为1
+        return !!accessToken.value //必须先value，!a 用于判断a是否为空，!!用于取反
+    }
+
+    function setAccessToken(token){
+        accessToken.value=token
+    }
+
+    function setUserInfo(data){
+        id.value=data.user_id
+        username.value=data.username
+        photo.value=data.photo
+        profile.value=data.profile
+    }
+
+    function logout(){
+        id.value=0
+        username.value=''
+        photo.value=''
+        profile.value=''
+        accessToken.value=''
+    }
+
+    function setHasPulledUserInfo(newStatus){
+        hasPulledUserInfo.value = newStatus
+    }
+    return { //必须全部返回
+        id,
+        username,
+        photo,
+        profile,
+        accessToken,
+        setAccessToken,
+        setUserInfo,
+        logout,
+        isLogin,
+        hasPulledUserInfo,
+        setHasPulledUserInfo,
+    }
+})
+```
+3. 在路由守卫中添加`hasPulledUserInfo`判断。
+```js
+router.beforeEach((to,form)=>{
+  const user = useUserStore()
+  if(to.meta.needLogin && user.hasPulledUserInfo && !user.isLogin()){
+    return {
+      name:'user-account-login-index',
+    }
+  }
+  return true
+})
+```
+4. 在`AIFriends/frontend/src/App.vue`中动态加载用户信息,`onMounted(）`在第一次挂载时就调用函数。
+5. 信息加载完成后，需要再次判断是否要路由到登录页面，这次用`router.replace()`，防止用户后退到授权页面。
+```html
+<script setup>
+
+import NavBar from "@/components/navbar/NavBar.vue";
+import {onMounted} from "vue";
+import {useUserStore} from "@/stores/user.js";
+import api from "@/js/http/api.js";
+import {useRoute, useRouter} from "vue-router";
+
+const user = useUserStore()
+const route = useRoute()
+const router = useRouter()
+
+onMounted(async ()=>{
+  try {
+    const res = await api.get('/api/user/account/get_user_info/')
+    const data = res.data
+    if (data.result === 'success') {
+      user.setUserInfo(data)
+    }
+  }catch(err){
+    console.log(err)
+  }finally {
+  //   无论如何都要执行
+    user.setHasPulledUserInfo(true)
+    if(route.meta.needLogin() && !user.isLogin())
+      await router.replace({
+        name: 'user-account-login-index'
+      })
+  }
+})
+</script>
+
+<template>
+  <NavBar>
+    <RouterView />  <!-- 根据index.js的组件开始匹配，将组件渲染在这里-->
+  </NavBar>
+</template>
+
+<style scoped>
+
+</style>
+```
+6. 在导航栏中添加`HasPulledUserInfo`判断。

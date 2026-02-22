@@ -35,14 +35,10 @@ async function handleRegister(){
           name: 'home-index'
         })
       }else {
-        //   errorMessage.value = data.result
-        // console.log('错误')
-        errorMessage.value = data.result
-      console.log('错误信息:', errorMessage.value)
+          errorMessage.value = data.result
       }
     }
     catch (err){
-      console.log(err)
     }
   }
 }

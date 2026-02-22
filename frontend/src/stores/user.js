@@ -8,6 +8,7 @@ export const useUserStore = defineStore('user',()=>{
     const photo = ref('')
     const profile = ref('')
     const accessToken = ref('')
+    const hasPulledUserInfo = ref(false)
 
     function isLogin(){//判断是否登录,登录为1
         return !!accessToken.value //必须先value，!a 用于判断a是否为空，!!用于取反
@@ -31,6 +32,10 @@ export const useUserStore = defineStore('user',()=>{
         profile.value=''
         accessToken.value=''
     }
+
+    function setHasPulledUserInfo(newStatus){
+        hasPulledUserInfo.value = newStatus
+    }
     return { //必须全部返回
         id,
         username,
@@ -41,6 +46,8 @@ export const useUserStore = defineStore('user',()=>{
         setUserInfo,
         logout,
         isLogin,
+        hasPulledUserInfo,
+        setHasPulledUserInfo,
     }
 })
 
