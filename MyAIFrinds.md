@@ -1701,6 +1701,20 @@ onMounted(async ()=>{
 
 1. 减小用户下拉菜单宽度：修改元素`w-52`，目前宽度为52*4，修改为合适大小；
 2. 用户下拉菜单中的用户名为中文时可以自动添加省略号，但为英文时不会自动添加；原因：英文单词默认以空格为分隔，若无空格，则默认为一个单词，故不会换行；修改方法：增加`break-all`，则会将英文单词在任意位置分割，可换行。
+```html
+<ul tabindex="-1" class="dropdown-content menu bg-base-100 rounded-box z-1 w-40 p-2 shadow-sm">
+        <li>
+          <RouterLink @click="closeMenu" :to="{name:'user-space-index',params: {user_id:user.id}}">
+            <div class="avatar">
+              <div class="w-9 rounded-full">
+                <img :src="user.photo" alt="" /> <!--变量的引用方式为‘:src = "usr.sth"’-->
+              </div>
+            </div>
+            <span class="text-base font-bold line-clamp-1 break-all">{{user.username}}</span> <!--括号内放函数-->
+          </RouterLink>
+        </li>
+        <li>
+```
 
 ### 1. 实现编辑资料
 
@@ -1711,8 +1725,18 @@ onMounted(async ()=>{
    2. 保存旧头像路径：使用`/`分隔开操作路径和`photo.name`路径；
    3. 如果旧路径存在，则删除`os.path.exists`
 ```py
+import os
 
+from django.conf import settings
+
+
+def remove_old_photo(photo):
+    if photo and photo.name != 'user/photo/default.png':
+        old_path = settings.MEDIA_ROOT / photo.name
+        if os.path.exists(old_path):
+            os.remove(old_path)
 ```
+
 3. 实现`AIFriends/backend/web/views/user/profile/update.py`：更新用户名、简介、头像等信息。
    1. profile为软件包；
    2. 必须要登录才可以修改，所以需要先判定登录:`permission_classes=[IsAuthenticated]`；
@@ -1720,11 +1744,62 @@ onMounted(async ()=>{
    4. 获取文件的方法`.FILES.get()`；
    5. 存完头像一定要`.save()`;
 ```py
+from django.contrib.auth.models import User
+from django.utils.timezone import now
+from rest_framework import status
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
 
+from web.models.user import UserProfile
+from web.views.utils.photo import remove_old_photo
+
+
+class UpdateProfileView(APIView):
+    permission_classes = [IsAuthenticated]
+    def post(self, request):
+        try:
+            user = request.user
+            user_profile = UserProfile.objects.get(user=user)
+            username = request.data.get('username').strip()
+            profile = request.data.get('profile').strip()[:500]
+            photo = request.FILES.get('photo',None)
+
+            if not username:
+                return Response({
+                    'result':'用户名不得为空'
+                })
+            if not profile:
+                return Response({
+                    'result':'简介不得为空'
+                })
+            if username != user.username and User.objects.filter(username=username).exists():
+                return Response({
+                    'result':'该用户名已存在'
+                })
+            if photo:
+                remove_old_photo(user_profile.photo)
+                user_profile.photo = photo
+            user_profile.profile=profile
+            user_profile.update_time = now()
+            user_profile.save()
+            user.username = username
+            user.save()
+            return Response({
+                'result':'success',
+                'user_id':user.id,
+                'username':user.username,
+                'profile':user_profile.profile,
+                'photo':user_profile.photo.url,
+            })
+        except:
+            return Response({
+                'result':'系统异常，请稍后再试',
+            })
 ```
 4. 在`AIFriends/backend/web/views/urls.py`中添加路由。
 ```py
-
+    path('api/user/profile/update',UpdateProfileView.as_view()),
 ```
 
 #### 1.2  创建前端
@@ -1786,6 +1861,37 @@ onBeforeUnmount(() => {  // 释放croppie对象，防止内存泄漏
    3. `Profile.vue`：简介
 2. 在`ProfileIndex.vue`的中间渲染一个组件，将刚刚的三个组件添加进来<Photo />；
 3. 母组件`ProfileIndex.vue`内给子组件传参数，`<Photo :变量名='参数'/>`;
+```html
+<script setup>
+
+import Photo from "@/views/user/profile/components/Photo.vue";
+import Username from "@/views/user/profile/components/Username.vue";
+import Profile from "@/views/user/profile/components/Profile.vue";
+import {useUserStore} from "@/stores/user.js";
+
+const user=useUserStore()
+</script>
+
+<template>
+  <div class="flex justify-center">
+    <div class ="card w-120 bg-base-200 shadow-sm mt-16">
+      <div class="card-body">
+        <h3 class="text-lg font-bold my-4">编辑资料</h3>
+        <Photo :photo="user.photo"/>
+        <Username :username="user.username"/>
+        <Profile :profile="user.profile"/>
+        <div class="flex justify-center">
+          <button class="btn btn-neutral w-60 mt-2">更新</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+
+</style>
+```
 4. 子组件接受参数方法`<script>`内`const props = defineProps('变量名')`,注意变量名要一致，再定义一个存传递进来参数的变量，方便记忆`const my变量 = ref(props.变量名)`;
 5. 需要用`watch`监听用户信息的变化。因为当刷新页面时，用户信息是从云端获取的，从云端获取后需要及时更新到资料编辑页面;
    >`watch(() => props.变量名, newVal =>{my变量名.value = newVal})`
@@ -1796,11 +1902,170 @@ onBeforeUnmount(() => {  // 释放croppie对象，防止内存泄漏
    4. 打开文件框`modalRef.value.showModal`，在`<script>`需要.value，在`<html>`不需要.value；
    5. 当使用`absolute`元素时，母元素需要带和`absolute`相同的类型的关键词；
    6. 将组件暴漏出给母组件`defineExpose({my变量})`。
-   
 7. 在母组件中接收来自子组件的组件`const 变量Ref = useTemplateRef('组件-ref')`,`<组件名 ref="组件-ref" :.../>`；
 8. 增加`const errorMessage`；
-9. 增加更新函数`async function handleUpdate(){}`,此处因为在写js，故需要.value.sth；
+9.  增加更新函数`async function handleUpdate(){}`,此处因为在写js，故需要.value.sth；
 10. 因为需要传递图片，同步格式为`FormData`，`const formData = FormData(){formData.append('关键词','变量名')}`；
+
+```html
+<!-- frontend/src/views/user/profile/components/Photo.vue -->
+<script setup>
+import {nextTick, onBeforeUnmount, ref, useTemplateRef, watch} from "vue";
+import CameraIcon from "@/views/user/profile/components/icon/CameraIcon.vue";
+import Croppie from 'croppie'
+import 'croppie/croppie.css'
+
+const props = defineProps(['photo'])
+const myPhoto = ref(props.photo)
+
+watch(() => props.photo, newVal => {
+  myPhoto.value = newVal
+})
+
+const fileInputRef = useTemplateRef('file-input-ref')
+const modalRef = useTemplateRef('modal-ref')
+const croppieRef = useTemplateRef('croppie-ref')
+let croppie = null
+
+async function openModal(photo){ //打开文件框
+  modalRef.value.showModal()
+  await nextTick() //等所有元素渲染完
+
+  if(!croppie){
+    croppie = new Croppie(croppieRef.value,{
+      viewport: {width: 200, height: 200, type: 'square'},// 创建croppie对象
+      boundary: {width: 300, height: 300},
+      enableOrientation: true,
+      enforceBoundary: true,
+    })
+  }
+
+  croppie.bind({// 绑定裁剪图片
+    url:photo,
+  })
+}
+
+async function crop(){
+  if(!croppie) return //确保存在
+
+  myPhoto.value = await croppie.result({  // 获取裁剪结果
+    type: 'base64',
+    size: 'viewport',
+  })
+
+  modalRef.value.close()
+}
+
+function onFileChange(e){ //文件上传函数
+  const file = e.target.files[0]
+  e.target.value = '' //保证用户效果，每次换头像不管是否是同一张图都触发写
+  if(!file) return
+
+  const reader = new FileReader() //将图片读成一个文件
+  reader.onload = () =>{
+    openModal(reader.result)
+  }
+
+  reader.readAsDataURL(file)
+}
+
+onBeforeUnmount(() => {  // 释放croppie对象，防止内存泄漏
+  croppie?.destroy()
+})
+</script>
+
+<template>
+  <div class="flex justify-center">
+    <div class="avatar relative">
+      <div class="w-28 rounded-full">
+        <img :src="myPhoto">
+      </div>
+      <div @click="fileInputRef.click()" class="absolute left-0 top-0 w-28 h-28 flex justify-center items-center bg-black/20 rounded-full cursor-pointer">
+        <CameraIcon/>
+      </div>
+    </div>
+  </div>
+
+  <input ref="file-input-ref" type="file" accept="image/*" class="hidden" @change="onFileChange">
+
+<!--  文件框，实现点击头像后可以选范围-->
+  <dialog ref="modal-ref" class="modal">
+    <div class="modal-box transition-none">
+      <button @click="modalRef.close()" class="btn btn-circle btn-sm btn-ghost absolute right-2 top-2">✕</button> <!--  关闭按钮  -->
+
+      <div ref="croppie-ref" class="flex flex-col justify-center my-4"></div>
+
+      <div class="modal-action">
+        <button @click="modalRef.close()" class = "btn">取消</button>
+        <button @click="crop" class="btn btn-neutral">确认</button>
+      </div>
+    </div>
+  </dialog>
+</template>
+
+<style scoped>
+
+</style>
+```
+
+```html
+<!-- frontend/src/views/user/profile/components/Username.vue -->
+<script setup>
+import {ref, watch} from "vue";
+
+const props = defineProps(['username'])
+const myUsername = ref(props.username)
+
+watch(() => props.username, newVal => {
+  myUsername.value = newVal
+})
+
+defineExpose({ //将组件暴露出去
+  myUsername,
+})
+</script>
+
+<template>
+  <fieldset class="fieldset">
+    <label class="label text-base">用户名</label>
+    <input v-model="myUsername" type="text" class="input w-108">
+  </fieldset>
+</template>
+
+<style scoped>
+
+</style>
+```
+
+```html
+<!-- frontend/src/views/user/profile/components/Profile.vue -->
+<script setup>
+import {ref, watch} from "vue";
+
+const props = defineProps(['profile'])
+const myProfile = ref(props.profile)
+
+watch(() => props.profile, newVal => {
+  myProfile.value = newVal
+})
+
+defineExpose({ //将组件暴露出去
+  myProfile,
+})
+</script>
+
+<template>
+  <fieldset class="fieldset">
+    <label class="label text-base">简介</label>
+    <textarea v-model="myProfile" rows="6" class="textarea w-108"></textarea>
+  </fieldset>
+</template>
+
+<style scoped>
+
+</style>
+```
+
 
 #### 1.3 对接前后端
 ##### 1.3.1 将base64图片转化成可上传的文件
@@ -1819,6 +2084,84 @@ export function base64ToFile(base64, filename) {
 ```
 2. 在`ProfileIndex.vue`用api的形式调用；
 
+```html
+<!-- frontend/src/views/user/profile/ProfileIndex.vue -->
+<script setup>
+
+import Photo from "@/views/user/profile/components/Photo.vue";
+import Username from "@/views/user/profile/components/Username.vue";
+import Profile from "@/views/user/profile/components/Profile.vue";
+import {useUserStore} from "@/stores/user.js";
+import {ref, useTemplateRef} from "vue";
+import {base64ToFile} from "@/js/utils/base64_to_file.js";
+import api from "@/js/http/api.js";
+
+const user=useUserStore()
+
+const photoRef = useTemplateRef('photo-ref')
+const usernameRef = useTemplateRef('username-ref')
+const profileRef = useTemplateRef('profile-ref')
+const errorMessage = ref('')
+
+async function handleUpdate(){
+  const photo = photoRef.value.myPhoto
+  const username = usernameRef.value.myUsername.trim()
+  const profile = profileRef.value.myProfile.trim()
+
+  errorMessage.value=''
+  if(!photo){
+    errorMessage.value='头像不能为空'
+  } else if (!username){
+    errorMessage.value = '用户名不得为空'
+  }else if(!profile){
+    errorMessage.value= '简介不得为空'
+  }else{
+    const formData = new FormData()
+    formData.append('username',username)
+    formData.append('profile',profile)
+    if(photo !== user.photo){
+      formData.append('photo',base64ToFile(photo,'photo.png'))
+    }
+    try{
+      const res = await api.post('api/user/profile/update',formData)
+      const data = res.data
+      if(data.result === 'success'){
+        user.setUserInfo(data)
+      }else{
+        errorMessage.value = data.result
+      }
+    }catch (err){
+      console.log(err)
+    }
+  }
+}
+</script>
+
+<template>
+  <div class="flex justify-center">
+    <div class ="card w-120 bg-base-200 shadow-sm mt-16">
+      <div class="card-body">
+        <h3 class="text-lg font-bold my-4">编辑资料</h3>
+        <Photo ref="photo-ref" :photo="user.photo"/>
+        <Username ref="username-ref" :username="user.username"/>
+        <Profile ref="profile-ref" :profile="user.profile"/>
+
+        <p v-if="errorMessage" class="text-sm text-red-500">{{errorMessage}}</p>
+
+        <div class="flex justify-center">
+          <button @click="handleUpdate" class="btn btn-neutral w-60 mt-2">更新</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+
+</style>
+```
+
+
 ### 2. 实现编辑角色页面
 #### 2.1 创建后端
 ##### 2.1.1  创建数据库
@@ -1831,6 +2174,52 @@ export function base64ToFile(base64, filename) {
 5. 将数据库及所有外键加入到admin.py，否则在管理员页面看不到该部分；
 6. 在后端同步数据库`\AIFriends\backend> python .\manage.py makemigrations \\ python .\manage.py migrate` 
 
+```py
+# backend/web/models/character.py
+import uuid
+
+from django.db import models
+from django.utils.timezone import now, localtime
+
+from web.models.user import UserProfile
+
+def photo_upload_to(instance, filename):
+    ext = filename.split('.')[-1]
+    filename = f'{uuid.uuid4().hex[:10]}.{ext}'
+    return f'character/photos/{instance.author.user.id}_{filename}'
+
+def background_image_upload_to(instance, filename):
+    ext = filename.split('.')[-1]
+    filename = f'{uuid.uuid4().hex[:10]}.{ext}'
+    return f'character/background_images/{instance.author.user.id}_{filename}'
+
+class Character(models.Model):
+    author = models.ForeignKey(UserProfile, on_delete=models.CASCADE)
+    name = models.CharField(max_length=50)
+    photo = models.ImageField(upload_to=photo_upload_to)
+    profile = models.TextField(max_length=100000)
+    background_image = models.ImageField(upload_to=background_image_upload_to)
+    create_time = models.DateTimeField(default=now)
+    update_time = models.DateTimeField(default=now)
+
+    def __str__(self):
+        return f"{self.author.user.username} - {self.name} - {localtime(self.create_time).strftime('%Y-%m-%d %H:%M:%S')}"
+```
+
+```py
+# backend/web/admin.py
+from django.contrib import admin
+from web.models.user import UserProfile
+from web.models.character import Character
+
+@admin.register(UserProfile)#注册
+class UserProfileAdmin(admin.ModelAdmin):
+    raw_id_fields = ('user',) #逗号必须保留！！！为一个列表，查找时页面加载100条；若写成`raw_id_fields`,则添加用户时，名字为所有用户的下拉菜单
+    
+@admin.register(Character)
+class CharacterAdmin(admin.ModelAdmin):
+    raw_id_fields = ('author',)
+```
 ##### 2.1.2 创建views
 在`AIFriends/backend/web/views/create/character/`目录下实现：
 1. `create.py`：创建角色
@@ -1845,6 +2234,59 @@ export function base64ToFile(base64, filename) {
   3. 确保登录；
   4. 数据获取`request.data.get('变量名')`，文件获取`request.FILES.get('变量名',None)`，None为变量可以为空；
   5. 创建角色调用`Character.object.create(变量)`
+```py
+from django.utils.termcolors import background
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+
+from web.models.character import Character
+from web.models.user import UserProfile
+
+
+class CreateCharacterView(APIView):
+    permission_classes = [IsAuthenticated]
+    def post(self, request):
+        try:
+            user = request.user
+            user_profile = UserProfile.objects.get(user=user)
+            name = request.data.get('name').strip()
+            profile = request.data.get('profile').strip()[:100000]
+            photo = request.FILES.get('photo',None)
+            background_image = request.FILES.get('background_image',None)
+            
+            if not name:
+                return Response({
+                    'result':'名字不得为空',
+                })
+            if not profile:
+                return Response({
+                    'result':'角色介绍不得为空'
+                })
+            if not photo:
+                return Response({
+                    'result':'头像不得为空'
+                })
+            if not background_image:
+                return Response({
+                    'result':'聊天背景不得为空'
+                })
+            
+            Character.objects.create(
+                author=user_profile,
+                name = name,
+                profile = profile,
+                photo = photo,
+                background_image = background_image,
+            )
+            return Response({
+                'result':'success'
+            })
+        except:
+            return Response({
+                'result':'系统错误，请稍后再试',
+            })
+```
 
 `update.py`：更新角色
   1. def post;
@@ -1855,16 +2297,146 @@ export function base64ToFile(base64, filename) {
   6. `request.data`返回为列表，django会自动将数字转换为int格式；若想递归查询，则用双下划线连接`auther__user__username`，获取到的为ahther中的user的username变量；
   7. 先删旧的，再存新的，记得返回前`.save()`；
 
+```py
+from django.utils.http import parse_header_parameters
+from django.utils.termcolors import background
+from django.utils.timezone import now
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+
+from web.models.character import Character
+from web.views.utils.photo import remove_old_photo
+
+
+class UpdateCharacterView(APIView):
+    permission_classes = [IsAuthenticated]
+    def post(self, request):
+        try:
+            character_id = request.data['character_id']
+            character = Character.objects.get(id=character_id,author__user=request.user)#修改自己的角色
+            name = request.data['name'].strip()
+            profile = request.data['profile'].strip()[:100000]
+            photo = request.FILES.get('photo',None)
+            background_image = request.FILES.get('background_image',None)
+
+            if not name:
+                return Response({
+                    'result': '名字不得为空',
+                })
+            if not profile:
+                return Response({
+                    'result': '角色介绍不得为空'
+                })
+            if photo:
+                remove_old_photo(character.photo)
+                character.photo = photo
+            if background_image:
+                remove_old_photo(character.background_image)
+                character.background_image = background_image
+            character.name = name
+            character.profile = profile
+            character.update_time=now()
+            character.save()
+            return Response({
+                'result':'success'
+            })
+        except:
+            Response({
+                'result':'系统异常，请稍后再试',
+            })
+```
+
 `remove.py`：删除角色
   1. def post;
   2. APIView、Response、IsAuthenticated;
   3. 确保登录；
   4. `Character.object.fliter(id，作者名author__user).delete()`
+```py
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+
+from web.models.character import Character
+
+
+class RemoveCharacterView(APIView):
+    permission_classes = [IsAuthenticated]
+    def post(self, request):
+        try:
+            character_id = request.data['character_id']
+            Character.objects.filter(pk=character_id,author__user=request.user).delete()
+        except:
+            return Response({
+                'result':'系统错误，请稍后再试'
+            })
+```
 
 `get_single.py`：获取角色
   1. def get;
   2. APIView、Response、IsAuthenticated
   3. 确保登录；
 
+```py
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+
+from web.models.character import Character
+
+
+class GetSingleCharacterView(APIView):
+    permission_classes = [IsAuthenticated]
+    def get(self, request):
+        try:
+            character_id = request.query_params.get('character_id')
+            character = Character.objects.get(id=character_id,author__user=request.user)
+            return Response({
+                'result':'success',
+                'character':{
+                    'id':character.id,
+                    'name':character.name,
+                    'profile':character.profile,
+                    'photo':character.photo.url,
+                    'background_image':character.background_image.url,
+                }
+            })
+        except:
+            return Response({
+                'result':'系统错误，请稍后再试'
+            })
+```
+
+
 ##### 2.1.3 添加路由
 在`AIFriends/backend/web/urls.py`中添加路由。
+```py
+from django.urls import path, re_path
+
+from web.views.account.get_user_info import GetUserInfoView
+from web.views.account.login import LoginView
+from web.views.account.logout import LogoutView
+from web.views.account.refresh_token import RefreshTokenView
+from web.views.account.register import RegisterView
+from web.views.create.character.create import CreateCharacterView
+from web.views.create.character.get_single import GetSingleCharacterView
+from web.views.create.character.remove import RemoveCharacterView
+from web.views.create.character.update import UpdateCharacterView
+from web.views.index import index
+from web.views.user.profile.update import UpdateProfileView
+
+urlpatterns = [
+    path('api/user/account/login/',LoginView.as_view()),#前加api为了与系统默认做区分
+    path('api/user/account/logout/',LogoutView.as_view()),
+    path('api/user/account/register/',RegisterView.as_view()),
+    path('api/user/account/refresh_token/',RefreshTokenView.as_view()),
+    path('api/user/account/get_user_info/',GetUserInfoView.as_view()),
+    path('api/user/profile/update/',UpdateProfileView.as_view()),
+    path('api/create/character/create/',CreateCharacterView.as_view()),
+    path('api/create/character/update/',UpdateCharacterView.as_view()),
+    path('api/create/character/remove/',RemoveCharacterView.as_view()),
+    path('api/create/character/get_single/',GetSingleCharacterView.as_view()),
+    path('',index),
+    re_path(r'^(?!media/|static/|assets/).*$', index)
+]
+```
