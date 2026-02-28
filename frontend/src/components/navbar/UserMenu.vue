@@ -36,7 +36,7 @@ async function handleLogout(){
         <img :src="user.photo" alt="" /> <!--变量的引用方式为‘:src = "usr.sth"’-->
       </div>
     </div>
-      <ul tabindex="-1" class="dropdown-content menu bg-base-100 rounded-box z-1 w-52 p-2 shadow-sm">
+      <ul tabindex="-1" class="dropdown-content menu bg-base-100 rounded-box z-1 w-40 p-2 shadow-sm">
         <li>
           <RouterLink @click="closeMenu" :to="{name:'user-space-index',params: {user_id:user.id}}">
             <div class="avatar">
@@ -44,7 +44,7 @@ async function handleLogout(){
                 <img :src="user.photo" alt="" /> <!--变量的引用方式为‘:src = "usr.sth"’-->
               </div>
             </div>
-            <span class="text-base font-bold">{{user.username}}</span> <!--括号内放函数-->
+            <span class="text-base font-bold line-clamp-1 break-all">{{user.username}}</span> <!--括号内放函数-->
           </RouterLink>
         </li>
         <li>

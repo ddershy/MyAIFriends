@@ -1201,6 +1201,7 @@ async function handleLogin(){
       }
     }
     catch (err){
+      console.log(err)
     }
   }
 }
@@ -1414,6 +1415,7 @@ async function handleLogout(){
 
   在`AIFriends/frontend/src/router/index.js`中添加守卫
   在路由中加入自定义信息meta，在路由前添加一个判断。`router.beforeEach((to,form)=>{`
+
 ```js
 import { createRouter, createWebHistory } from 'vue-router'
 import HomepageIndex from "@/views/homepage/HomepageIndex.vue";
@@ -1576,7 +1578,7 @@ export const useUserStore = defineStore('user',()=>{
     const photo = ref('')
     const profile = ref('')
     const accessToken = ref('')
-    const hasPulledUserInfo = ref('')
+    const hasPulledUserInfo = ref(false)
 
     function isLogin(){//判断是否登录,登录为1
         return !!accessToken.value //必须先value，!a 用于判断a是否为空，!!用于取反
@@ -1658,7 +1660,7 @@ onMounted(async ()=>{
   }finally {
   //   无论如何都要执行
     user.setHasPulledUserInfo(true)
-    if(route.meta.needLogin() && !user.isLogin())
+    if(route.meta.needLogin && !user.isLogin())
       await router.replace({
         name: 'user-account-login-index'
       })
@@ -1676,4 +1678,193 @@ onMounted(async ()=>{
 
 </style>
 ```
-6. 在导航栏中添加`HasPulledUserInfo`判断。
+6. 在导航栏中添加`HasPulledUserInfo`判断，以优化每次刷新会闪白的问题
+```html
+ <div class="navbar-end">
+          <RouterLink v-if="user.isLogin()" :to="{name:'create-index'}" active-class="btn-active" class="btn btn-ghost text-lg mr-6">
+            <CreateIcon/>
+            创作
+          </RouterLink>
+          <RouterLink v-if="user.hasPulledUserInfo &&!user.isLogin()" :to="{name:'user-account-login-index'}" active-class="btn-active" class="btn btn-ghost text-lg">
+            登录
+          </RouterLink>
+          <UserMenu v-else-if="user.isLogin()"/>
+        </div>
+```
+
+#### 4.7 将前端代码打包到后端
+`\LLM\MyAIFriends\frontend> npm run build `
+`backend/web/templates/index.html`更新js和css
+
+## 四、编辑资料
+### 0. 补丁
+
+1. 减小用户下拉菜单宽度：修改元素`w-52`，目前宽度为52*4，修改为合适大小；
+2. 用户下拉菜单中的用户名为中文时可以自动添加省略号，但为英文时不会自动添加；原因：英文单词默认以空格为分隔，若无空格，则默认为一个单词，故不会换行；修改方法：增加`break-all`，则会将英文单词在任意位置分割，可换行。
+
+### 1. 实现编辑资料
+
+#### 1.1 创建后端
+1. 创建软件包`utils`作为辅助函数包，`web/views/utils`
+2. 在utils下创建py文件`photo.py`，实现删除旧头像文件
+   1. 特判是否为默认头像，若不是再进行后续操作；
+   2. 保存旧头像路径：使用`/`分隔开操作路径和`photo.name`路径；
+   3. 如果旧路径存在，则删除`os.path.exists`
+```py
+
+```
+3. 实现`AIFriends/backend/web/views/user/profile/update.py`：更新用户名、简介、头像等信息。
+   1. profile为软件包；
+   2. 必须要登录才可以修改，所以需要先判定登录:`permission_classes=[IsAuthenticated]`；
+   3. 数据库查询方法:`.objects.get()`当且仅当存在一个元素时为true和`.object.filter()`返回一个列表；
+   4. 获取文件的方法`.FILES.get()`；
+   5. 存完头像一定要`.save()`;
+```py
+
+```
+4. 在`AIFriends/backend/web/views/urls.py`中添加路由。
+```py
+
+```
+
+#### 1.2  创建前端
+
+##### 1.2.1 安装croppie
+因为`vue-croppie`不支持`vue3`，所以直接用`croppie`。
+
+安装`croppie`：`npm install croppie`。
+
+使用方式：
+```html
+<script setup>
+...
+import Croppie from 'croppie'
+import 'croppie/croppie.css'
+...
+
+const croppieRef = useTemplateRef('croppie-ref')
+let croppie = null
+
+if (!croppie) {
+  croppie = new Croppie(croppieRef.value, {  // 创建croppie对象
+    viewport: {width: 200, height: 200, type: 'square'},
+    boundary: {width: 300, height: 300},
+    enableOrientation: true,
+    enforceBoundary: true,
+  })
+}
+
+croppie.bind({  // 绑定裁剪图片
+  url: photo,
+})
+
+myPhoto.value = await croppie.result({  // 获取裁剪结果
+  type: 'base64',
+  size: 'viewport',
+})
+
+onBeforeUnmount(() => {  // 释放croppie对象，防止内存泄漏
+  croppie?.destroy()
+})
+</script>
+
+<template>
+...
+<!-- 定义croppie绑定的标签 -->
+<div ref="croppie-ref" class="flex flex-col justify-center my-4"></div>
+...
+</template>
+```
+
+注意： 模态框中的modal-box样式跟croppie有冲突，会导致裁剪图片右下角时多一些缝隙，可以加上transition-none加以修复。
+
+##### 1.2.2 创建头像、用户名、简介组件
+
+1. 在文件夹`AIFriends/frontend/src/views/user/profile/components/`下创建空组件：
+   1. `Photo.vue`：用户头像
+   2. `Username.vue`：用户名
+   3. `Profile.vue`：简介
+2. 在`ProfileIndex.vue`的中间渲染一个组件，将刚刚的三个组件添加进来<Photo />；
+3. 母组件`ProfileIndex.vue`内给子组件传参数，`<Photo :变量名='参数'/>`;
+4. 子组件接受参数方法`<script>`内`const props = defineProps('变量名')`,注意变量名要一致，再定义一个存传递进来参数的变量，方便记忆`const my变量 = ref(props.变量名)`;
+5. 需要用`watch`监听用户信息的变化。因为当刷新页面时，用户信息是从云端获取的，从云端获取后需要及时更新到资料编辑页面;
+   >`watch(() => props.变量名, newVal =>{my变量名.value = newVal})`
+6. `Photo.vue`：用户头像
+   1. 给头像蒙一层灰色，鼠标移上去变手；
+   2. 点击头像触发文件输入框响应:`<input ref='关键词' type="file" accept="image/*" class="hidden">`，`const 关键词Ref= uesTemplateRef('关键词')`,`<div @clike="关键词Ref.clike()"`
+   3. 无论用户两次上传的是否是同一张图片，都需要触发操作，设置函数`function onFileChange(e)`
+   4. 打开文件框`modalRef.value.showModal`，在`<script>`需要.value，在`<html>`不需要.value；
+   5. 当使用`absolute`元素时，母元素需要带和`absolute`相同的类型的关键词；
+   6. 将组件暴漏出给母组件`defineExpose({my变量})`。
+   
+7. 在母组件中接收来自子组件的组件`const 变量Ref = useTemplateRef('组件-ref')`,`<组件名 ref="组件-ref" :.../>`；
+8. 增加`const errorMessage`；
+9. 增加更新函数`async function handleUpdate(){}`,此处因为在写js，故需要.value.sth；
+10. 因为需要传递图片，同步格式为`FormData`，`const formData = FormData(){formData.append('关键词','变量名')}`；
+
+#### 1.3 对接前后端
+##### 1.3.1 将base64图片转化成可上传的文件
+
+1. 在文件夹utils，函数base64_to_file.js，`AIFriends/frontend/src/js/utils/base64_to_file.js`文件中实现工具函数`base64ToFile`：
+```js
+export function base64ToFile(base64, filename) {
+  const arr = base64.split(',')
+  const mime = arr[0].match(/:(.*?);/)[1]
+  const bstr = atob(arr[1])
+  let n = bstr.length
+  const u8arr = new Uint8Array(n)
+  while (n--) u8arr[n] = bstr.charCodeAt(n)
+  return new File([u8arr], filename, { type: mime })
+}
+```
+2. 在`ProfileIndex.vue`用api的形式调用；
+
+### 2. 实现编辑角色页面
+#### 2.1 创建后端
+##### 2.1.1  创建数据库
+
+在`AIFriends/backend/web/models/character.py`中创建Character`数据库。
+1. `author=models.ForeignKey(UserProfile,on_delete=models.CASCADE)`外键的类型为UserProfile；
+2. 定义动态生成头像名字的函数:`def photo_upload_to(instance,filename)`，随机字符串`ext = filename.split('.')[-1]  filename=f'{uuid.uuid4().hex[:l]}.{ext}` f'文件路径；
+3. CharFile和TextFile区别：前者只有一行，后者为文本框；
+4. 注意返回的不是author的时间，这样会返回用户创建时间，需要返回的是新的角色的创建时间；
+5. 将数据库及所有外键加入到admin.py，否则在管理员页面看不到该部分；
+6. 在后端同步数据库`\AIFriends\backend> python .\manage.py makemigrations \\ python .\manage.py migrate` 
+
+##### 2.1.2 创建views
+在`AIFriends/backend/web/views/create/character/`目录下实现：
+1. `create.py`：创建角色
+2. `update.py`：更新角色
+3. `remove.py`：删除角色
+4. `get_single.py`：获取角色
+注意：`get`方法传入的参数在`request.query_params`中；`post`方法传入的参数在`request.data`中。
+
+`create.py`：创建角色
+  1. def post;
+  2. APIView、Response、IsAuthenticated;
+  3. 确保登录；
+  4. 数据获取`request.data.get('变量名')`，文件获取`request.FILES.get('变量名',None)`，None为变量可以为空；
+  5. 创建角色调用`Character.object.create(变量)`
+
+`update.py`：更新角色
+  1. def post;
+  2. APIView、Response、IsAuthenticated;
+  3. 确保登录；
+  4. 绑定角色调用`Character.object.get(id，作者名author__user)`
+  5. 数据获取角色id`request.data.get('变量名')`，文件获取`request.FILES.get('变量名',None)`；
+  6. `request.data`返回为列表，django会自动将数字转换为int格式；若想递归查询，则用双下划线连接`auther__user__username`，获取到的为ahther中的user的username变量；
+  7. 先删旧的，再存新的，记得返回前`.save()`；
+
+`remove.py`：删除角色
+  1. def post;
+  2. APIView、Response、IsAuthenticated;
+  3. 确保登录；
+  4. `Character.object.fliter(id，作者名author__user).delete()`
+
+`get_single.py`：获取角色
+  1. def get;
+  2. APIView、Response、IsAuthenticated
+  3. 确保登录；
+
+##### 2.1.3 添加路由
+在`AIFriends/backend/web/urls.py`中添加路由。
