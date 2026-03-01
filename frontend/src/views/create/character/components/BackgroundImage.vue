@@ -1,0 +1,101 @@
+<script setup>
+import {onBeforeUnmount, ref, useTemplateRef, watch} from "vue";
+import CameraIcon from "@/views/user/profile/components/icon/CameraIcon.vue";
+import Croppie from 'croppie'
+import 'croppie/croppie.css'
+
+const props = defineProps(['bgImage'])
+const myBGImage = ref(props.bgImage)
+
+watch(()=> props.bgImage,newVal =>{
+  myBGImage.value = newVal
+})
+
+const fileInputRef = useTemplateRef('file-input-ref') //绑定弹出文件框
+const modalRef = useTemplateRef('modal-ref')
+const croppieRef = useTemplateRef('croppie-ref')
+let croppie = null
+
+async function openModal(bgImage){//打开文件框
+  modalRef.value.showModal()
+
+  if(!croppie){
+    croppie = new Croppie(croppieRef.value,{// 创建croppie对象
+      viewport: {width: 200, height: 400, },
+      boundary: {width: 300, height: 500},
+      enableOrientation: true,
+      enforceBoundary: true,
+    })
+  }
+
+  croppie.bind({
+    url:bgImage,
+  })
+}
+
+//裁剪函数
+async function crop(){
+  if(!croppie) return//如果没有裁剪对象，直接返回
+
+  myBGImage.value = await croppie.result({//将我的头像换成裁剪后的
+    type:'base64',
+    size:'viewport',
+  })
+
+  modalRef.value.close()
+}
+
+function onFileChange(e){//上传头像
+  const file = e.target.files[0]
+  e.target.value= ''
+  if(!file) return
+
+  const reader = new FileReader()
+  reader.onload = () => {
+    openModal(reader.result) //打开文件框
+  }
+  reader.readAsDataURL(file)
+}
+
+onBeforeUnmount(() => {  // 释放croppie对象，防止内存泄漏
+  croppie?.destroy()
+})
+
+defineExpose({
+  myBGImage
+})
+</script>
+
+<template>
+  <fieldset class="fieldset">
+    <label class="label text-base">聊天背景</label>
+    <div class="avatar relative">
+      <div v-if="myBGImage" class="w-15 h-25 rounded-box"> <!--圆角矩形-->
+        <img :src="myBGImage" alt="">
+      </div>
+      <div v-else class="w-15 h-25 rounded-box bg-base-300"></div> <!--没有背景图的情况-->
+      <div @click="fileInputRef.click()" class="w-15 h-25 rounded-box absolute left-0 top-0 bg-black/20 flex justify-center items-center cursor-pointer"> <!-- 渲染一个相机 -->
+        <CameraIcon/>
+      </div>
+    </div>
+  </fieldset>
+
+  <input ref="file-input-ref" type="file" class="hidden" accept="image/*" @change="onFileChange">
+
+  <dialog ref="modal-ref" class="modal">
+    <div class="modal-box transition-none max-w-1xl"> <!--弹窗大小-->
+      <button @click="modalRef.close()" class="btn btn-sm btn-ghost btn-circle absolute right-2 top-2">✕</button>
+
+      <div ref="croppie-ref" class="flex flex-col my-4"></div>
+
+      <div class="modal-action">
+        <button @click="modalRef.close()" class="btn">取消</button>
+        <button @click="crop" class="btn btn-neutral">确定</button>
+      </div>
+    </div>
+  </dialog>
+</template>
+
+<style scoped>
+
+</style>

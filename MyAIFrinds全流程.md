@@ -399,7 +399,7 @@ fatal: unable to access 'https://github.com/ddershy/AIFriends.git/': Recv failur
 2. 创建目录 `frontend/src/components/navbar/icons/CreateIcon.vue`、`FriendIcon.vue`、`HomepageIcon`、`MenuIcon`和 `SearchIcon`，并添加对应内容至 `<template>`内
    > [Svg Icons合集](https://www.acwing.com/blog/content/83396/)
    >
-3. 在 `NavBar.vue`的`<label>`内将之前的图标加进来，并修改相关bar界面
+3. 在 `NavBar.vue`的 `<label>`内将之前的图标加进来，并修改相关bar界面
 4. ```html
    <div class="drawer-content">
     <!-- Navbar -->
@@ -413,6 +413,7 @@ fatal: unable to access 'https://github.com/ddershy/AIFriends.git/': Recv failur
     <slot></slot> <!-- 实现在`App.vue` <NavBar>标签之间添加html，自动同步至`<slot>` 内 -->
     </div>```
 
+   ```
 5. 对接前后端:`\LLM\AIFriends\frontend> npm run build`
 
 ## 第一、二重点代码备份
@@ -516,9 +517,11 @@ import SearchIcon from "@/components/navbar/icons/searchIcon.vue";
 ## 三、登录模块
 
 ### 1. 实现路由
+
 网页会根据URL选择显示的页面。
 
 #### 1.1 添加路由
+
 实现路由的路径：`frontend/src/router/index.js`，router的匹配顺序为：沿字典，自上而下，故需要有兜底字典。前端匹配任意路径的方式：`path: '/:pathMatch(.*)*'`
 
 ```js
@@ -585,36 +588,42 @@ const router = createRouter({
 
 export default router
 ```
+
 注：失败路径为：`path:'/:pathMatch(.*)*'`;此处误写成：`'/:pathMatch(*)*'`导致整个页面渲染失败。
+
 1. 正确写法：`path: '/:pathMatch(.*)*'`
-这是 Vue Router 4 官方推荐的“捕获所有路由”的正则写法，意思是“匹配任何路径”。
+   这是 Vue Router 4 官方推荐的“捕获所有路由”的正则写法，意思是“匹配任何路径”。
+
 > 1. /:pathMatch：定义一个名为 pathMatch 的动态参数。
 > 2. (.*)：括号内是正则表达式。此处的 . 代表任意字符，* 代表重复零次或多次。合起来 .* 意思是匹配任意字符串。
 > 3. 最后的 *：表示这个参数是可重复的。这对于解析像 /a/b/c 这样多层级的路径非常重要。
-> 结果：无论你访问 /abc 还是 /user/123/profile，只要前面的路由都没匹配上，这个规则就会生效，从而跳转到 NotFoundIndex 组件。
+>    结果：无论你访问 /abc 还是 /user/123/profile，只要前面的路由都没匹配上，这个规则就会生效，从而跳转到 NotFoundIndex 组件。
 
 2. 错误写法：path: '/:pathMatch(*)*'
+
 > 1. 错误点：括号里的 (*)。
 > 2. 原因：在正则表达式中，* 是一个修饰符，意思是“前面的字符重复零次或多次”。但是在这里，* 前面没有任何字符！
-> 3.  这导致了语法错误（Syntax Error），通常会报 `SyntaxError: Invalid regular expression`。
+> 3. 这导致了语法错误（Syntax Error），通常会报 `SyntaxError: Invalid regular expression`。
 > 4. 后果：由于路由配置也是 JavaScript 代码的一部分，这一个字符的语法错误会导致整个路由文件解析失败，进而导致整个 Vue 应用无法启动或变为空白页（白屏），也就是你说的“页面渲染失败”。
 
 #### 1.2 将路由更新到前端页面
 
-1. 取出当前url相关信息的方法:frontend/src/views/user/space/SpaceIndex.vue`const route = useRoute()`；
+1. 取出当前url相关信息的方法:frontend/src/views/user/space/SpaceIndex.vue `const route = useRoute()`；
 2. 控制页面前进或后退：`const router = useRouter()`；
-3. 在`AIFriends/frontend/src/App.vue`中添加 `<RouterView />`，会在index中寻找对应的组件，然后在这里把页面渲染出来；
-4. 在导航栏中添加`<RouterLink></RouterLink>`；
-5. 给各个页面的按钮添加`active-class`属性：当打开当前url时自动激活
-6. 在`AIFriends/frontend/src/views/user/space/SpaceIndex.vue`中显示传入的`user_id`参数。
-7. 将导航栏的按钮加跳转连接，需要将`<button`修改为`<RouterLink :to="{name ='index中目标页面的名字'}"`，就会在点击时将url变成对应页面，并渲染对应组件；
-8. 点击后对应页面button高亮，若在menu的元素，在class加`menu-focus`。但这种方法会导致按键常亮，故修改为单独的部分：`active-class="menu-focus"`若'name'相同，则激活'active-class'
-9. 若是button元素，则加`btn-active`。
+3. 在 `AIFriends/frontend/src/App.vue`中添加 `<RouterView />`，会在index中寻找对应的组件，然后在这里把页面渲染出来；
+4. 在导航栏中添加 `<RouterLink></RouterLink>`；
+5. 给各个页面的按钮添加 `active-class`属性：当打开当前url时自动激活
+6. 在 `AIFriends/frontend/src/views/user/space/SpaceIndex.vue`中显示传入的 `user_id`参数。
+7. 将导航栏的按钮加跳转连接，需要将 `<button`修改为 `<RouterLink :to="{name ='index中目标页面的名字'}"`，就会在点击时将url变成对应页面，并渲染对应组件；
+8. 点击后对应页面button高亮，若在menu的元素，在class加 `menu-focus`。但这种方法会导致按键常亮，故修改为单独的部分：`active-class="menu-focus"`若'name'相同，则激活'active-class'
+9. 若是button元素，则加 `btn-active`。
 
 ### 2. 实现登录、注册前端页面
 
 #### 2.1 实现LoginIndex.vue
+
 frontend/src/views/user/account/LoginIndex.vue
+
 ```html
 <script setup>
 
@@ -643,6 +652,7 @@ frontend/src/views/user/account/LoginIndex.vue
 ```
 
 #### 2.2 RegisterIndex.vue
+
 frontend/src/views/user/account/RegisterIndex.vue
 
 ```html
@@ -677,13 +687,13 @@ frontend/src/views/user/account/RegisterIndex.vue
 
 ### 3. 实现登录、注册后端逻辑后端
 
-#### 3.1 创建`UserProfile`数据库
+#### 3.1 创建 `UserProfile`数据库
 
-1. 创建`models.ImageField`之前需要先安装Pillow包：`pip install Pillow`,用于数据库图像处理；
-2. 创建软件包`backend/web/models`；
+1. 创建 `models.ImageField`之前需要先安装Pillow包：`pip install Pillow`,用于数据库图像处理；
+2. 创建软件包 `backend/web/models`；
 3. 创建文件：`backend/web/models/user.py`
 4. 创建存放头像的文件夹：`backend/media/user/photos`，上传默认头像；
-5. 增加用户相关逻辑`backend/web/models/user.py`
+5. 增加用户相关逻辑 `backend/web/models/user.py`
 
 ```py
 import uuid
@@ -709,7 +719,8 @@ class UserProfile(models.Model):
         return f'{self.user.username} - {localtime(self.create_time).strftime('%Y-%m-%d %H:%M:%S')}'
 ```
 
-6. 每次创建完数据库后需要在`MyAIFriends/backend/web/admin.py`中添加，这样才可以在管理员页面里看到新创建的数据库
+6. 每次创建完数据库后需要在 `MyAIFriends/backend/web/admin.py`中添加，这样才可以在管理员页面里看到新创建的数据库
+
 ```py
 from django.contrib import admin
 from web.models.user import UserProfile
@@ -719,19 +730,19 @@ class UserProfileAdmin(admin.ModelAdmin):
     raw_id_fields = ('user',) #逗号必须保留！！！为一个列表，查找时页面加载100条；若写成`raw_id_fields`,则添加用户时，名字为所有用户的下拉菜单
 ```
 
-7. 每次创建/更新完数据库后，都需要在`AIFriends/backend/`目录下执行：
-  1. `python manage.py makemigrations`：生成数据库更新操作;会自己生成文件`backend/web/migrations/0001_initial.py`，该操作为将数据加入数据库；
-  2. `python manage.py migrate`：将数据库的更新同步到`db.sqlite3`（或者其他数据库，例如mysql）中
-   
-8. 在数据库管理员页面`http://127.0.0.1:8000/admin/web/userprofile/add/`中为`admin`用户创建绑定的`UserProfile`对象
+7. 每次创建/更新完数据库后，都需要在 `AIFriends/backend/`目录下执行：
+8. `python manage.py makemigrations`：生成数据库更新操作;会自己生成文件 `backend/web/migrations/0001_initial.py`，该操作为将数据加入数据库；
+9. `python manage.py migrate`：将数据库的更新同步到 `db.sqlite3`（或者其他数据库，例如mysql）中
+10. 在数据库管理员页面 `http://127.0.0.1:8000/admin/web/userprofile/add/`中为 `admin`用户创建绑定的 `UserProfile`对象
 
 #### 3.2 实现views (后端api)
 
-创建软件包`backend/web/views/account`和`backend/web/views/user`;
+创建软件包 `backend/web/views/account`和 `backend/web/views/user`;
 
-在目录`AIFriends/backend/web/views/user/account/`下实现：
+在目录 `AIFriends/backend/web/views/user/account/`下实现：
 
-1. `login.py`：登录。使用用户名 + 密码登录，在`cookie`中设置`refresh_token`，并返回`access_token`和`用户信息`;
+1. `login.py`：登录。使用用户名 + 密码登录，在 `cookie`中设置 `refresh_token`，并返回 `access_token`和 `用户信息`;
+
 ```py
 from platform import mac_ver
 
@@ -780,7 +791,9 @@ class LoginView(APIView):
                 'result': '系统异常，请稍后重试',
             })
 ```
-2. `register.py`：注册账号。创建账号后返回`refresh_token`、`access_token`和`用户信息`;
+
+2. `register.py`：注册账号。创建账号后返回 `refresh_token`、`access_token`和 `用户信息`;
+
 ```py
 from django.contrib.auth.models import User
 from rest_framework.views import APIView
@@ -827,7 +840,9 @@ class Register(APIView):
                 'resulr': '系统异常，请稍后重试'
             })
 ```
-3. `logout.py`：退出登录。删除`cookie`中的`refresh_token`;
+
+3. `logout.py`：退出登录。删除 `cookie`中的 `refresh_token`;
+
 ```py
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -842,7 +857,9 @@ class LogoutView(APIView):
         response.delete_cookie('refresh_token')
         return response
 ```
-4. `refresh_token.py`：使用`cookie`中的`refresh_token`刷新`access_token`。
+
+4. `refresh_token.py`：使用 `cookie`中的 `refresh_token`刷新 `access_token`。
+
 ```py
 from multiprocessing.reduction import steal_handle
 
@@ -885,8 +902,10 @@ class RefreshToken(APIView):
 ```
 
 #### 3.3 更新urls
-在文件`AIFriends/backend/web/urls.py`中添加路由。
-后端前面不加`/`
+
+在文件 `AIFriends/backend/web/urls.py`中添加路由。
+后端前面不加 `/`
+
 ```py
 from django.urls import path, re_path
 
@@ -907,12 +926,16 @@ urlpatterns = [
 ```
 
 ### 4. 对接前后端
+
 #### 4.1 实现前端全局状态存储
+
 用于维护登陆状态，用一个全局变量来存储。
 
-参考counter.js实现`AIFriends/frontend/src/stores/user.js`。
-  1. (a,b,c) => {} 等价于 定义了一个函数，()内为参数
-  2. 删除AIFriends/frontend/src/stores/counter.js。
+参考counter.js实现 `AIFriends/frontend/src/stores/user.js`。
+
+1. (a,b,c) => {} 等价于 定义了一个函数，()内为参数
+2. 删除AIFriends/frontend/src/stores/counter.js。
+
 ```js
 import {defineStore} from "pinia";
 import {ref} from "vue";
@@ -924,22 +947,22 @@ export const useUserStor = defineStore('user',()=>{
     const photo = ref('')
     const profile = ref('')
     const accessToken = ref('')
-    
+  
     function isLogin(){//判断是否登录
         return !!accessToken.value //必须先value，!a 用于判断a是否为空，!!用于取反
     }
-    
+  
     function setAccessToken(token){
         accessToken.value=token
     }
-    
+  
     function setUserInfo(data){
         id.value=data.user_id
         username.value=data.username
         photo.value=data.photo
         profile.value=data.profile
     }
-    
+  
     function logout(){
         id.value=0
         username.value=''
@@ -963,9 +986,10 @@ export const useUserStor = defineStore('user',()=>{
 
 #### 4.2 添加登录后导航栏的功能
 
-1. 在`frontend/src/components/navbar/NavBar.vue`中添加刚刚定义的函数`const user = useUserStore()`
+1. 在 `frontend/src/components/navbar/NavBar.vue`中添加刚刚定义的函数 `const user = useUserStore()`
 2. 在登录按钮加判断登录语句 v-if(a),a为真则渲染组件，v-else，if失败直接渲染else；
 3. 单独用UserMenu.vue头像部分
+
 ```html
 <script setup>
 import {useUserStore} from "@/stores/user.js";
@@ -991,15 +1015,19 @@ const user = useUserStore()
 
 </style>
 ```
+
 4. 给头像下拉框添加逻辑
-5. 点击后自动关闭`@click="closeMenu"`
+5. 点击后自动关闭 `@click="closeMenu"`
+
 ```c++
 function closeMenu() { //下拉后自动关闭菜单
   const element = document.activeElement
   if (element && element instanceof HTMLElement) element.blur()
 }
 ```
+
 `frontend/src/components/navbar/UserMenu.vue`
+
 ```html
 <script setup>
 import {useUserStore} from "@/stores/user.js";
@@ -1062,7 +1090,9 @@ function closeMenu() { //下拉后自动关闭菜单
 ```
 
 #### 4.3 封装http请求
+
 创建js/http目录frontend/src/js/http，在http文件夹下创建文件api.js；
+
 ```js
 /*
  * 功能：在每个请求头里自动添加`access token`。
@@ -1156,14 +1186,17 @@ api.interceptors.response.use(
 )
 
 export default api
-```  
+```
 
 #### 4.4 对接前后端
+
 `AIFriends/frontend/src/user/account/LoginIndex.vue`：对接登录功能
-  1. `v-model`将变量名与placeholder连接起来；
-  2. aync function()异步函数；
-  3. 回车触发方式，将整个表单修改为`<form @submit.prevent="funct">`，`.prevent`为禁止回车键刷新页面；
-  4. 其实是几个函数间的引用与跳转；
+
+1. `v-model`将变量名与placeholder连接起来；
+2. aync function()异步函数；
+3. 回车触发方式，将整个表单修改为 `<form @submit.prevent="funct">`，`.prevent`为禁止回车键刷新页面；
+4. 其实是几个函数间的引用与跳转；
+
 ```html
 <script setup>
 import {useUserStore} from "@/stores/user.js";
@@ -1235,7 +1268,9 @@ async function handleLogin(){
 ```
 
 `AIFriends/frontend/src/user/account/RegisterIndex.vue`：对接注册功能
+
 > 修改后发现无法输出用户名重复，询问ai后修改为：
+
 ```py
 backend/web/views/account/register.py
 ser.objects.get(...).exists() 写法错误
@@ -1328,8 +1363,11 @@ async function handleRegister(){
 
 </style>
 ```
+
 `AIFriends/frontend/src/components/navbar/UserMenu.vue`：对接退出功能
-><Router>和定义后的router.push不能同时使用，需要将标签中的<Router>换成<a>或者其他
+
+> `<Router>`和定义后的router.push不能同时使用，需要将标签中的`<Router>`换成`<a>`或者其他
+
 ```html
 <script setup>
 import {useUserStore} from "@/stores/user.js";
@@ -1413,7 +1451,7 @@ async function handleLogout(){
 
   当前端路径需要登录且当前未登录时，自动跳转到登录页面:
 
-  在`AIFriends/frontend/src/router/index.js`中添加守卫
+  在 `AIFriends/frontend/src/router/index.js`中添加守卫
   在路由中加入自定义信息meta，在路由前添加一个判断。`router.beforeEach((to,form)=>{`
 
 ```js
@@ -1517,7 +1555,8 @@ export default router
 
 #### 4.6  第一次打开网站时，从云端加载用户信息
 
-1. 在`AIFriends/backend/web/views/user/account/`目录下实现`get_user_info.py`；
+1. 在 `AIFriends/backend/web/views/user/account/`目录下实现 `get_user_info.py`；
+
 ```py
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -1544,7 +1583,9 @@ class GetUserInfoView(APIView):
                 'result':'系统异常，请稍后重试'
             })
 ```
+
 并修改url
+
 ```py
 # backend/web/urls.py
 from django.urls import path, re_path
@@ -1566,7 +1607,9 @@ urlpatterns = [
     re_path(r'^(?!media/|static/|assets/).*$', index)
 ]
 ```
-2. 在`AIFriends/frontend/src/store/user.js`中添加`hasPulledUserInfo`状态。
+
+2. 在 `AIFriends/frontend/src/store/user.js`中添加 `hasPulledUserInfo`状态。
+
 ```js
 import {defineStore} from "pinia";
 import {ref} from "vue";
@@ -1621,7 +1664,9 @@ export const useUserStore = defineStore('user',()=>{
     }
 })
 ```
-3. 在路由守卫中添加`hasPulledUserInfo`判断。
+
+3. 在路由守卫中添加 `hasPulledUserInfo`判断。
+
 ```js
 router.beforeEach((to,form)=>{
   const user = useUserStore()
@@ -1633,8 +1678,10 @@ router.beforeEach((to,form)=>{
   return true
 })
 ```
-4. 在`AIFriends/frontend/src/App.vue`中动态加载用户信息,`onMounted(）`在第一次挂载时就调用函数。
-5. 信息加载完成后，需要再次判断是否要路由到登录页面，这次用`router.replace()`，防止用户后退到授权页面。
+
+4. 在 `AIFriends/frontend/src/App.vue`中动态加载用户信息,`onMounted(）`在第一次挂载时就调用函数。
+5. 信息加载完成后，需要再次判断是否要路由到登录页面，这次用 `router.replace()`，防止用户后退到授权页面。
+
 ```html
 <script setup>
 
@@ -1678,7 +1725,9 @@ onMounted(async ()=>{
 
 </style>
 ```
-6. 在导航栏中添加`HasPulledUserInfo`判断，以优化每次刷新会闪白的问题
+
+6. 在导航栏中添加 `HasPulledUserInfo`判断，以优化每次刷新会闪白的问题
+
 ```html
  <div class="navbar-end">
           <RouterLink v-if="user.isLogin()" :to="{name:'create-index'}" active-class="btn-active" class="btn btn-ghost text-lg mr-6">
@@ -1693,14 +1742,17 @@ onMounted(async ()=>{
 ```
 
 #### 4.7 将前端代码打包到后端
+
 `\LLM\MyAIFriends\frontend> npm run build `
 `backend/web/templates/index.html`更新js和css
 
 ## 四、编辑资料
+
 ### 0. 补丁
 
-1. 减小用户下拉菜单宽度：修改元素`w-52`，目前宽度为52*4，修改为合适大小；
-2. 用户下拉菜单中的用户名为中文时可以自动添加省略号，但为英文时不会自动添加；原因：英文单词默认以空格为分隔，若无空格，则默认为一个单词，故不会换行；修改方法：增加`break-all`，则会将英文单词在任意位置分割，可换行。
+1. 减小用户下拉菜单宽度：修改元素 `w-52`，目前宽度为52*4，修改为合适大小；
+2. 用户下拉菜单中的用户名为中文时可以自动添加省略号，但为英文时不会自动添加；原因：英文单词默认以空格为分隔，若无空格，则默认为一个单词，故不会换行；修改方法：增加 `break-all`，则会将英文单词在任意位置分割，可换行。
+
 ```html
 <ul tabindex="-1" class="dropdown-content menu bg-base-100 rounded-box z-1 w-40 p-2 shadow-sm">
         <li>
@@ -1719,11 +1771,13 @@ onMounted(async ()=>{
 ### 1. 实现编辑资料
 
 #### 1.1 创建后端
-1. 创建软件包`utils`作为辅助函数包，`web/views/utils`
-2. 在utils下创建py文件`photo.py`，实现删除旧头像文件
+
+1. 创建软件包 `utils`作为辅助函数包，`web/views/utils`
+2. 在utils下创建py文件 `photo.py`，实现删除旧头像文件
    1. 特判是否为默认头像，若不是再进行后续操作；
-   2. 保存旧头像路径：使用`/`分隔开操作路径和`photo.name`路径；
-   3. 如果旧路径存在，则删除`os.path.exists`
+   2. 保存旧头像路径：使用 `/`分隔开操作路径和 `photo.name`路径；
+   3. 如果旧路径存在，则删除 `os.path.exists`
+
 ```py
 import os
 
@@ -1737,12 +1791,13 @@ def remove_old_photo(photo):
             os.remove(old_path)
 ```
 
-3. 实现`AIFriends/backend/web/views/user/profile/update.py`：更新用户名、简介、头像等信息。
+3. 实现 `AIFriends/backend/web/views/user/profile/update.py`：更新用户名、简介、头像等信息。
    1. profile为软件包；
    2. 必须要登录才可以修改，所以需要先判定登录:`permission_classes=[IsAuthenticated]`；
-   3. 数据库查询方法:`.objects.get()`当且仅当存在一个元素时为true和`.object.filter()`返回一个列表；
-   4. 获取文件的方法`.FILES.get()`；
-   5. 存完头像一定要`.save()`;
+   3. 数据库查询方法:`.objects.get()`当且仅当存在一个元素时为true和 `.object.filter()`返回一个列表；
+   4. 获取文件的方法 `.FILES.get()`；
+   5. 存完头像一定要 `.save()`;
+
 ```py
 from django.contrib.auth.models import User
 from django.utils.timezone import now
@@ -1797,7 +1852,9 @@ class UpdateProfileView(APIView):
                 'result':'系统异常，请稍后再试',
             })
 ```
-4. 在`AIFriends/backend/web/views/urls.py`中添加路由。
+
+4. 在 `AIFriends/backend/web/views/urls.py`中添加路由。
+
 ```py
     path('api/user/profile/update',UpdateProfileView.as_view()),
 ```
@@ -1805,11 +1862,13 @@ class UpdateProfileView(APIView):
 #### 1.2  创建前端
 
 ##### 1.2.1 安装croppie
-因为`vue-croppie`不支持`vue3`，所以直接用`croppie`。
 
-安装`croppie`：`npm install croppie`。
+因为 `vue-croppie`不支持 `vue3`，所以直接用 `croppie`。
+
+安装 `croppie`：`npm install croppie`。
 
 使用方式：
+
 ```html
 <script setup>
 ...
@@ -1855,12 +1914,13 @@ onBeforeUnmount(() => {  // 释放croppie对象，防止内存泄漏
 
 ##### 1.2.2 创建头像、用户名、简介组件
 
-1. 在文件夹`AIFriends/frontend/src/views/user/profile/components/`下创建空组件：
+1. 在文件夹 `AIFriends/frontend/src/views/user/profile/components/`下创建空组件：
    1. `Photo.vue`：用户头像
    2. `Username.vue`：用户名
    3. `Profile.vue`：简介
-2. 在`ProfileIndex.vue`的中间渲染一个组件，将刚刚的三个组件添加进来<Photo />；
-3. 母组件`ProfileIndex.vue`内给子组件传参数，`<Photo :变量名='参数'/>`;
+2. 在 `ProfileIndex.vue`的中间渲染一个组件，将刚刚的三个组件添加进来`<Photo />`；
+3. 母组件 `ProfileIndex.vue`内给子组件传参数，`<Photo :变量名='参数'/>`;
+
 ```html
 <script setup>
 
@@ -1892,20 +1952,22 @@ const user=useUserStore()
 
 </style>
 ```
-4. 子组件接受参数方法`<script>`内`const props = defineProps('变量名')`,注意变量名要一致，再定义一个存传递进来参数的变量，方便记忆`const my变量 = ref(props.变量名)`;
-5. 需要用`watch`监听用户信息的变化。因为当刷新页面时，用户信息是从云端获取的，从云端获取后需要及时更新到资料编辑页面;
-   >`watch(() => props.变量名, newVal =>{my变量名.value = newVal})`
+
+4. 子组件接受参数方法 `<script>`内 `const props = defineProps('变量名')`,注意变量名要一致，再定义一个存传递进来参数的变量，方便记忆 `const my变量 = ref(props.变量名)`;
+5. 需要用 `watch`监听用户信息的变化。因为当刷新页面时，用户信息是从云端获取的，从云端获取后需要及时更新到资料编辑页面;
+   > `watch(() => props.变量名, newVal =>{my变量名.value = newVal})`
+   >
 6. `Photo.vue`：用户头像
    1. 给头像蒙一层灰色，鼠标移上去变手；
    2. 点击头像触发文件输入框响应:`<input ref='关键词' type="file" accept="image/*" class="hidden">`，`const 关键词Ref= uesTemplateRef('关键词')`,`<div @clike="关键词Ref.clike()"`
-   3. 无论用户两次上传的是否是同一张图片，都需要触发操作，设置函数`function onFileChange(e)`
-   4. 打开文件框`modalRef.value.showModal`，在`<script>`需要.value，在`<html>`不需要.value；
-   5. 当使用`absolute`元素时，母元素需要带和`absolute`相同的类型的关键词；
-   6. 将组件暴漏出给母组件`defineExpose({my变量})`。
-7. 在母组件中接收来自子组件的组件`const 变量Ref = useTemplateRef('组件-ref')`,`<组件名 ref="组件-ref" :.../>`；
-8. 增加`const errorMessage`；
-9.  增加更新函数`async function handleUpdate(){}`,此处因为在写js，故需要.value.sth；
-10. 因为需要传递图片，同步格式为`FormData`，`const formData = FormData(){formData.append('关键词','变量名')}`；
+   3. 无论用户两次上传的是否是同一张图片，都需要触发操作，设置函数 `function onFileChange(e)`
+   4. 打开文件框 `modalRef.value.showModal`，在 `<script>`需要.value，在 `<html>`不需要.value；
+   5. 当使用 `absolute`元素时，母元素需要带和 `absolute`相同的类型的关键词；
+   6. 将组件暴漏出给母组件 `defineExpose({my变量})`。
+7. 在母组件中接收来自子组件的组件 `const 变量Ref = useTemplateRef('组件-ref')`,`<组件名 ref="组件-ref" :.../>`；
+8. 增加 `const errorMessage`；
+9. 增加更新函数 `async function handleUpdate(){}`,此处因为在写js，故需要.value.sth；
+10. 因为需要传递图片，同步格式为 `FormData`，`const formData = FormData(){formData.append('关键词','变量名')}`；
 
 ```html
 <!-- frontend/src/views/user/profile/components/Photo.vue -->
@@ -2066,11 +2128,12 @@ defineExpose({ //将组件暴露出去
 </style>
 ```
 
-
 #### 1.3 对接前后端
+
 ##### 1.3.1 将base64图片转化成可上传的文件
 
-1. 在文件夹utils，函数base64_to_file.js，`AIFriends/frontend/src/js/utils/base64_to_file.js`文件中实现工具函数`base64ToFile`：
+1. 在文件夹utils，函数base64_to_file.js，`AIFriends/frontend/src/js/utils/base64_to_file.js`文件中实现工具函数 `base64ToFile`：
+
 ```js
 export function base64ToFile(base64, filename) {
   const arr = base64.split(',')
@@ -2082,7 +2145,8 @@ export function base64ToFile(base64, filename) {
   return new File([u8arr], filename, { type: mime })
 }
 ```
-2. 在`ProfileIndex.vue`用api的形式调用；
+
+2. 在 `ProfileIndex.vue`用api的形式调用；
 
 ```html
 <!-- frontend/src/views/user/profile/ProfileIndex.vue -->
@@ -2161,18 +2225,20 @@ async function handleUpdate(){
 </style>
 ```
 
-
 ### 2. 实现编辑角色页面
+
 #### 2.1 创建后端
+
 ##### 2.1.1  创建数据库
 
-在`AIFriends/backend/web/models/character.py`中创建Character`数据库。
+在 `AIFriends/backend/web/models/character.py`中创建Character`数据库。
+
 1. `author=models.ForeignKey(UserProfile,on_delete=models.CASCADE)`外键的类型为UserProfile；
-2. 定义动态生成头像名字的函数:`def photo_upload_to(instance,filename)`，随机字符串`ext = filename.split('.')[-1]  filename=f'{uuid.uuid4().hex[:l]}.{ext}` f'文件路径；
+2. 定义动态生成头像名字的函数:`def photo_upload_to(instance,filename)`，随机字符串 `ext = filename.split('.')[-1]  filename=f'{uuid.uuid4().hex[:l]}.{ext}` f'文件路径；
 3. CharFile和TextFile区别：前者只有一行，后者为文本框；
 4. 注意返回的不是author的时间，这样会返回用户创建时间，需要返回的是新的角色的创建时间；
 5. 将数据库及所有外键加入到admin.py，否则在管理员页面看不到该部分；
-6. 在后端同步数据库`\AIFriends\backend> python .\manage.py makemigrations \\ python .\manage.py migrate` 
+6. 在后端同步数据库 `\AIFriends\backend> python .\manage.py makemigrations \\ python .\manage.py migrate`
 
 ```py
 # backend/web/models/character.py
@@ -2215,25 +2281,30 @@ from web.models.character import Character
 @admin.register(UserProfile)#注册
 class UserProfileAdmin(admin.ModelAdmin):
     raw_id_fields = ('user',) #逗号必须保留！！！为一个列表，查找时页面加载100条；若写成`raw_id_fields`,则添加用户时，名字为所有用户的下拉菜单
-    
+  
 @admin.register(Character)
 class CharacterAdmin(admin.ModelAdmin):
     raw_id_fields = ('author',)
 ```
+
 ##### 2.1.2 创建views
-在`AIFriends/backend/web/views/create/character/`目录下实现：
+
+在 `AIFriends/backend/web/views/create/character/`目录下实现：
+
 1. `create.py`：创建角色
 2. `update.py`：更新角色
 3. `remove.py`：删除角色
 4. `get_single.py`：获取角色
-注意：`get`方法传入的参数在`request.query_params`中；`post`方法传入的参数在`request.data`中。
+   注意：`get`方法传入的参数在 `request.query_params`中；`post`方法传入的参数在 `request.data`中。
 
 `create.py`：创建角色
-  1. def post;
-  2. APIView、Response、IsAuthenticated;
-  3. 确保登录；
-  4. 数据获取`request.data.get('变量名')`，文件获取`request.FILES.get('变量名',None)`，None为变量可以为空；
-  5. 创建角色调用`Character.object.create(变量)`
+
+1. def post;
+2. APIView、Response、IsAuthenticated;
+3. 确保登录；
+4. 数据获取 `request.data.get('变量名')`，文件获取 `request.FILES.get('变量名',None)`，None为变量可以为空；
+5. 创建角色调用 `Character.object.create(变量)`
+
 ```py
 from django.utils.termcolors import background
 from rest_framework.views import APIView
@@ -2254,7 +2325,7 @@ class CreateCharacterView(APIView):
             profile = request.data.get('profile').strip()[:100000]
             photo = request.FILES.get('photo',None)
             background_image = request.FILES.get('background_image',None)
-            
+          
             if not name:
                 return Response({
                     'result':'名字不得为空',
@@ -2271,7 +2342,7 @@ class CreateCharacterView(APIView):
                 return Response({
                     'result':'聊天背景不得为空'
                 })
-            
+          
             Character.objects.create(
                 author=user_profile,
                 name = name,
@@ -2289,13 +2360,14 @@ class CreateCharacterView(APIView):
 ```
 
 `update.py`：更新角色
-  1. def post;
-  2. APIView、Response、IsAuthenticated;
-  3. 确保登录；
-  4. 绑定角色调用`Character.object.get(id，作者名author__user)`
-  5. 数据获取角色id`request.data.get('变量名')`，文件获取`request.FILES.get('变量名',None)`；
-  6. `request.data`返回为列表，django会自动将数字转换为int格式；若想递归查询，则用双下划线连接`auther__user__username`，获取到的为ahther中的user的username变量；
-  7. 先删旧的，再存新的，记得返回前`.save()`；
+
+1. def post;
+2. APIView、Response、IsAuthenticated;
+3. 确保登录；
+4. 绑定角色调用 `Character.object.get(id，作者名author__user)`
+5. 数据获取角色id `request.data.get('变量名')`，文件获取 `request.FILES.get('变量名',None)`；
+6. `request.data`返回为列表，django会自动将数字转换为int格式；若想递归查询，则用双下划线连接 `auther__user__username`，获取到的为ahther中的user的username变量；
+7. 先删旧的，再存新的，记得返回前 `.save()`；
 
 ```py
 from django.utils.http import parse_header_parameters
@@ -2342,16 +2414,18 @@ class UpdateCharacterView(APIView):
                 'result':'success'
             })
         except:
-            Response({
+            return Response({
                 'result':'系统异常，请稍后再试',
             })
 ```
 
 `remove.py`：删除角色
-  1. def post;
-  2. APIView、Response、IsAuthenticated;
-  3. 确保登录；
-  4. `Character.object.fliter(id，作者名author__user).delete()`
+
+1. def post;
+2. APIView、Response、IsAuthenticated;
+3. 确保登录；
+4. `Character.object.fliter(id，作者名author__user).delete()`
+
 ```py
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -2366,6 +2440,9 @@ class RemoveCharacterView(APIView):
         try:
             character_id = request.data['character_id']
             Character.objects.filter(pk=character_id,author__user=request.user).delete()
+            return Response({
+                'result':'success'
+            })
         except:
             return Response({
                 'result':'系统错误，请稍后再试'
@@ -2373,9 +2450,10 @@ class RemoveCharacterView(APIView):
 ```
 
 `get_single.py`：获取角色
-  1. def get;
-  2. APIView、Response、IsAuthenticated
-  3. 确保登录；
+
+1. def get;
+2. APIView、Response、IsAuthenticated
+3. 确保登录；
 
 ```py
 from rest_framework.views import APIView
@@ -2407,9 +2485,10 @@ class GetSingleCharacterView(APIView):
             })
 ```
 
-
 ##### 2.1.3 添加路由
-在`AIFriends/backend/web/urls.py`中添加路由。
+
+在 `AIFriends/backend/web/urls.py`中添加路由。
+
 ```py
 from django.urls import path, re_path
 
@@ -2440,3 +2519,36 @@ urlpatterns = [
     re_path(r'^(?!media/|static/|assets/).*$', index)
 ]
 ```
+
+#### 2.2 创建前端
+
+##### 2.2.1 创建头像、名字、角色介绍、背景图片等组件
+
+1. 创建两个目录：`AIFriends/frontend/src/views/create/character/components/`目录下创建空组件：
+2. 根据编辑资料页面，将主页分割成几个组件，分辨创建：
+   `Photo.vue`：头像
+   `Name.vue`：名字
+   `Profile.vue`：角色介绍
+   `BackgroundImage.vue`：聊天背景
+   四个组件接需要向父组件传递信息；
+3. 在/character/目录下创建总组件 `CreateCharacter.vue`和 `UpdateChcracter.vue`
+
+##### 2.2.2 实现创建角色页面
+
+实现 `AIFriends/frontend/src/views/create/character/CreateCharacter.vue`。
+
+1. 将`<CreateCharacter/>`放在 `frontend/src/views/create/CreateIndex.vue`的 `<template>`中;
+2. 模仿编辑自资料页面布局；
+3. 实现卡片和标题后，将头像、名字、角色介绍、聊天背景的四个组件引入，且需要接收来自组件传递的信息；
+4. 加入居中的创建按钮；
+
+##### 2.2.3 实现名字、角色介绍、聊天背景组件
+
+1. `frontend/src/views/create/character/components/Name.vue`名字和角色介绍；
+   1. `<fieldset>`：是 HTML 表单语义标签，用于对一组相关表单元素进行分组。在语义上表示：这一块是一个“输入区域单元”；
+   2. `<label>` 是表单字段的标题，用于展示给用户看的文本；
+   3. `<textarea>`文本框；
+2. 头像
+   1. 居中；
+   2. 圆形头像avatar，内层还需覆盖一个绝对布局的相机，故relative;判断图像不为空才渲染myPhoto，反之渲染一个灰色圆圈；
+   3. img
