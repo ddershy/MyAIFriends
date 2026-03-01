@@ -400,7 +400,8 @@ fatal: unable to access 'https://github.com/ddershy/AIFriends.git/': Recv failur
    > [Svg Icons合集](https://www.acwing.com/blog/content/83396/)
    >
 3. 在 `NavBar.vue`的 `<label>`内将之前的图标加进来，并修改相关bar界面
-4. ```html
+4. 代码：
+```html
    <div class="drawer-content">
     <!-- Navbar -->
     <nav class="navbar w-full bg-base-100 shadow-sm">
@@ -411,9 +412,9 @@ fatal: unable to access 'https://github.com/ddershy/AIFriends.git/': Recv failur
     </nav>
     <!-- Page content here -->
     <slot></slot> <!-- 实现在`App.vue` <NavBar>标签之间添加html，自动同步至`<slot>` 内 -->
-    </div>```
+    </div>
+```
 
-   ```
 5. 对接前后端:`\LLM\AIFriends\frontend> npm run build`
 
 ## 第一、二重点代码备份
@@ -2548,7 +2549,515 @@ urlpatterns = [
    1. `<fieldset>`：是 HTML 表单语义标签，用于对一组相关表单元素进行分组。在语义上表示：这一块是一个“输入区域单元”；
    2. `<label>` 是表单字段的标题，用于展示给用户看的文本；
    3. `<textarea>`文本框；
+```html
+<script setup>
+import {ref, watch} from "vue";
+
+const props = defineProps(['name'])
+const myName = ref(props.name)
+
+watch(()=> props.name,newVal =>{
+  myName.value = newVal
+})
+
+defineExpose({
+  myName
+})
+</script>
+
+<template>
+  <fieldset class="fieldset">
+    <label class="label text-base">名字</label>
+    <input v-model="myName" class="input w-108">
+  </fieldset>
+</template>
+
+<style scoped>
+
+</style>
+```
+```html
+<script setup>
+import {ref, watch} from "vue";
+
+const props = defineProps(['profile'])
+const myProfile = ref(props.profile)
+
+watch(()=> props.profile,newVal => {
+  myProfile.value = newVal
+})
+
+defineExpose({
+  myProfile,
+})
+</script>
+
+<template>
+  <fieldset class="fieldset">
+    <label class="label text-base">角色介绍</label>
+    <textarea v-model="myProfile" rows="6" class="textarea w-108"></textarea>
+  </fieldset>
+</template>
+
+<style scoped>
+
+</style>
+```
 2. 头像
    1. 居中；
    2. 圆形头像avatar，内层还需覆盖一个绝对布局的相机，故relative;判断图像不为空才渲染myPhoto，反之渲染一个灰色圆圈；
-   3. img
+   3. img渲染；
+   4. div组件放灰色覆盖+相机+小手，同编辑页面；
+   5. 弹出上传图片界面，`<input type="file">`;点击头像触发该响应，需要一个判断引用；`ref="file-input-ref"`;创建一个useTemplateRef，并绑定；将相框`<div>`加入点击后触发该`useTemplateRef.click()`的逻辑；
+   6. 点击确定后需上传头像，将头像转换为文件，弹出裁剪框；
+   7. 给裁剪框加关闭按钮；
+   8. `croppie`裁剪插件；
+   9. 取消和确定按钮，去掉调用关闭modal，确认调用关闭并裁剪头像；
+   10. 显示头像逻辑：croppie无则返回，有则修改myPhoto；
+   11. croppie释放内存`onBeforeUnmount`；
+```html
+<script setup>
+import {onBeforeUnmount, ref, useTemplateRef, watch} from "vue";
+import CameraIcon from "@/views/user/profile/components/icon/CameraIcon.vue";
+import Croppie from 'croppie'
+import 'croppie/croppie.css'
+
+const props = defineProps(['photo'])
+const myPhoto = ref(props.photo)
+
+watch(()=> props.photo,newVal =>{
+  myPhoto.value = newVal
+})
+
+const fileInputRef = useTemplateRef('file-input-ref') //绑定弹出文件框
+const modalRef = useTemplateRef('modal-ref')
+const croppieRef = useTemplateRef('croppie-ref')
+let croppie = null
+
+async function openModal(photo){//打开文件框
+  modalRef.value.showModal()
+
+  if(!croppie){
+    croppie = new Croppie(croppieRef.value,{// 创建croppie对象
+      viewport: {width: 200, height: 200, type: 'square'},
+      boundary: {width: 300, height: 300},
+      enableOrientation: true,
+      enforceBoundary: true,
+    })
+  }
+
+  croppie.bind({
+    url:photo,
+  })
+}
+
+//裁剪函数
+async function crop(){
+  if(!croppie) return//如果没有裁剪对象，直接返回
+
+  myPhoto.value = await croppie.result({//将我的头像换成裁剪后的
+    type:'base64',
+    size:'viewport',
+  })
+
+  modalRef.value.close()
+}
+
+function onFileChange(e){//上传头像
+  const file = e.target.files[0]
+  e.target.value= ''
+  if(!file) return
+
+  const reader = new FileReader()
+  reader.onload = () => {
+    openModal(reader.result) //打开文件框
+  }
+  reader.readAsDataURL(file)
+}
+
+onBeforeUnmount(() => {  // 释放croppie对象，防止内存泄漏
+  croppie?.destroy()
+})
+
+defineExpose({
+  myPhoto
+})
+</script>
+
+<template>
+  <div class="flex justify-center">
+    <div class="avatar relative">
+      <div v-if="myPhoto" class="w-28 rounded-full">
+        <img :src="myPhoto" alt="">
+      </div>
+      <div v-else class="w-28 h-28 rounded-full bg-base-200"></div>
+      <div @click="fileInputRef.click()" class="w-28 h-28 rounded-full bg-black/20 absolute left-0 top-0 flex justify-center items-center cursor-pointer">
+        <CameraIcon/>
+      </div>
+    </div>
+  </div>
+
+  <input ref="file-input-ref" type="file" class="hidden" accept="image/*" @change="onFileChange">
+
+  <dialog ref="modal-ref" class="modal">
+    <div class="modal-box transition-none">
+      <button @click="modalRef.close()" class="btn btn-sm btn-ghost btn-circle absolute right-2 top-2">✕</button>
+
+      <div ref="croppie-ref" class="flex flex-col my-4"></div>
+
+      <div class="modal-action">
+        <button @click="modalRef.close()" class="btn">取消</button>
+        <button @click="crop" class="btn btn-neutral">确定</button>
+      </div>
+    </div>
+  </dialog>
+</template>
+
+<style scoped>
+
+</style>
+```
+
+3. 背景图片
+  1.`rounded-box`圆角矩形；
+```html
+<script setup>
+import {onBeforeUnmount, ref, useTemplateRef, watch} from "vue";
+import CameraIcon from "@/views/user/profile/components/icon/CameraIcon.vue";
+import Croppie from 'croppie'
+import 'croppie/croppie.css'
+
+const props = defineProps(['backgroundImage'])
+const myBackgroundImage = ref(props.backgroundImage)
+
+watch(()=> props.backgroundImage,newVal =>{
+  myBackgroundImage.value = newVal
+})
+
+const fileInputRef = useTemplateRef('file-input-ref') //绑定弹出文件框
+const modalRef = useTemplateRef('modal-ref')
+const croppieRef = useTemplateRef('croppie-ref')
+let croppie = null
+
+async function openModal(backgroundImage){//打开文件框
+  modalRef.value.showModal()
+
+  if(!croppie){
+    croppie = new Croppie(croppieRef.value,{// 创建croppie对象
+      viewport: {width: 200, height: 400, },
+      boundary: {width: 300, height: 500},
+      enableOrientation: true,
+      enforceBoundary: true,
+    })
+  }
+
+  croppie.bind({
+    url:backgroundImage,
+  })
+}
+
+//裁剪函数
+async function crop(){
+  if(!croppie) return//如果没有裁剪对象，直接返回
+
+  myBackgroundImage.value = await croppie.result({//将我的头像换成裁剪后的
+    type:'base64',
+    size:'viewport',
+  })
+
+  modalRef.value.close()
+}
+
+function onFileChange(e){//上传头像
+  const file = e.target.files[0]
+  e.target.value= ''
+  if(!file) return
+
+  const reader = new FileReader()
+  reader.onload = () => {
+    openModal(reader.result) //打开文件框
+  }
+  reader.readAsDataURL(file)
+}
+
+onBeforeUnmount(() => {  // 释放croppie对象，防止内存泄漏
+  croppie?.destroy()
+})
+
+defineExpose({
+  myBackgroundImage
+})
+</script>
+
+<template>
+  <fieldset class="fieldset">
+    <label class="label text-base">聊天背景</label>
+    <div class="avatar relative">
+      <div v-if="myBackgroundImage" class="w-15 h-25 rounded-box"> <!--圆角矩形-->
+        <img :src="myBackgroundImage" alt="">
+      </div>
+      <div v-else class="w-15 h-25 rounded-box bg-base-200"></div> <!--没有背景图的情况-->
+      <div @click="fileInputRef.click()" class="w-15 h-25 rounded-box absolute left-0 top-0 bg-black/20 flex justify-center items-center cursor-pointer"> <!-- 渲染一个相机 -->
+        <CameraIcon/>
+      </div>
+    </div>
+  </fieldset>
+
+  <input ref="file-input-ref" type="file" class="hidden" accept="image/*" @change="onFileChange">
+
+  <dialog ref="modal-ref" class="modal">
+    <div class="modal-box transition-none max-w-1xl"> <!--弹窗大小-->
+      <button @click="modalRef.close()" class="btn btn-sm btn-ghost btn-circle absolute right-2 top-2">✕</button>
+
+      <div ref="croppie-ref" class="flex flex-col my-4"></div>
+
+      <div class="modal-action">
+        <button @click="modalRef.close()" class="btn">取消</button>
+        <button @click="crop" class="btn btn-neutral">确定</button>
+      </div>
+    </div>
+  </dialog>
+</template>
+
+<style scoped>
+
+</style>
+```
+
+#### 2.3 对接前后端
+`frontend/src/views/create/character/CreateCharacter.vue`
+1. 修改四个组件的引用；
+2. 写四个引用的Ref；
+3. 写对接后端的函数`handleCreate`;
+4. 将该函数绑定到‘创建’按钮；
+5. 报错信息；
+6. 对接后端，因为传文件创建一个FORM表单数据`FormData`,其中formData.append中的key必须与`/api/create/character/create/`的变量一致；
+7. 打开个人用户主页，`router`
+```html
+<script setup>
+
+import Photo from "@/views/create/character/components/Photo.vue";
+import Name from "@/views/create/character/components/Name.vue";
+import Profile from "@/views/create/character/components/Profile.vue";
+import BackgroundImage from "@/views/create/character/components/BackgroundImage.vue";
+import {ref, useTemplateRef} from "vue";
+import {base64ToFile} from "@/js/utils/base64_to_file.js";
+import api from "@/js/http/api.js";
+import {useRouter} from "vue-router";
+import {useUserStore} from "@/stores/user.js";
+
+const user = useUserStore()
+const router = useRouter()
+
+const photoRef = useTemplateRef('photo-ref') //四个引用
+const nameRef = useTemplateRef('name-ref')
+const profileRef = useTemplateRef('profile-ref')
+const backgroundImageRef = useTemplateRef('backgroundImage-ref')
+const errorMessage =ref('')
+
+//对接后端的函数
+async function handleCreate(){
+  const photo = photoRef.value.myPhoto //获取四个变量
+  const name = nameRef.value.myName?.trim()//去掉前后空格,为空返回空，不空调用.trim()
+  const profile = profileRef.value.myProfile?.trim()
+  const backgroundImage = backgroundImageRef.value.myBackgroundImage
+
+  errorMessage.value = ''
+  if(!photo){
+    errorMessage.value='头像不得为空'
+  }else if(!name){
+    errorMessage.value='名字不得为空'
+  }else if(!profile){
+    errorMessage.value='角色简介不得为空'
+  }else if(!backgroundImage){
+    errorMessage.value='聊天背景不得为空'
+  }else{
+    const formData = new FormData()//对接后端，因为传文件创建一个FORM表单数据FormData
+    formData.append('name',name)
+    formData.append('profile',profile)
+    formData.append('photo',base64ToFile(photo,'photo.png'))
+    formData.append('background_image',base64ToFile(backgroundImage,'bgImage.png')) //key与`/api/create/character/create/`的变量一致
+
+    try{
+      const res = await api.post('/api/create/character/create/',formData)//对接后端的请求
+      const data = res.data //获取返回结果
+      if(data.result === 'success'){//成功自动跳转用户主页
+        await router.push({
+          name:'user-space-index',
+          params:{
+            user_id: user.id,
+          }
+        })
+      }else{
+        errorMessage.value = data.result
+      }
+
+    }catch (err){
+    }
+  }
+}
+</script>
+
+<template>
+  <div class="flex justify-center mt-18">
+    <div class="card w-120 bg-base-200 shadow-sm">
+      <div class="card-body">
+        <h3 class="text-lg font-bold my-4">创建角色</h3>
+        <Photo ref="photo-ref"/>
+        <Name ref="name-ref"/>
+        <Profile ref="profile-ref"/>
+        <BackgroundImage ref="backgroundImage-ref"/>
+
+        <p v-if="errorMessage" class="text-sm text-red-500">{{errorMessage}}</p>
+
+        <div class="flex justify-center">
+          <button @click="handleCreate" class="btn btn-neutral w-60 mt-2">创建</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+
+</style>
+```
+
+#### 2.4 实现更新角色页面
+##### 2.3.1 添加`UpdateCharacter.vue`的路由
+在`AIFriends/frontend/src/router/index.js`中添加`UpdateCharacter.vue`的路由
+```js
+{ //路由字典-创建角色
+    path:'/create/character/update/:character_id/',//传递参数character_id
+    component:UpdateCharacter,
+    name:'update-character',
+    meta:{
+      needLogin: true,
+    }
+},
+```
+
+##### 2.3.2 实现更新角色页面
+`frontend/src/views/create/character/UpdateCharacter.vue`
+1. 在`CreateCharacter.vue`基础上修改；
+2. 需要得知修改的是哪个角色，`const route = useRoute()  const characterId = route.params.character_id`;
+3. 需要在前端显示的变量定义为响应式变量,`const character = ref(null)`；
+4. `get`类型的参数放在`params`中，`character_id(url中变量一致):characterId(vue中变量),`；
+5. 修改页面如果有角色才显示:`<div v-if="character" class="flex justify-center">`；
+6. character的元素需要传到组件里；
+```html
+<script setup>
+
+import Photo from "@/views/create/character/components/Photo.vue";
+import Name from "@/views/create/character/components/Name.vue";
+import Profile from "@/views/create/character/components/Profile.vue";
+import BackgroundImage from "@/views/create/character/components/BackgroundImage.vue";
+import {onMounted, ref, useTemplateRef} from "vue";
+import {base64ToFile} from "@/js/utils/base64_to_file.js";
+import api from "@/js/http/api.js";
+import {useRoute, useRouter} from "vue-router";
+import {useUserStore} from "@/stores/user.js";
+
+const user = useUserStore()
+const router = useRouter()
+const route = useRoute() //得知修改的角色
+const characterId = route.params.character_id
+const character = ref(null)
+
+onMounted(async () => {
+  try{
+    const res = await api.get('/api/create/character/get_single/',{//向后端发送一个请求
+      params:{
+        character_id:characterId,
+      }
+    })
+    const data = res.data
+    if(data.result === 'success'){
+      character.value = data.character
+    }
+  } catch (err){
+    console.log(err)
+  }
+})
+
+const photoRef = useTemplateRef('photo-ref') //四个引用
+const nameRef = useTemplateRef('name-ref')
+const profileRef = useTemplateRef('profile-ref')
+const backgroundImageRef = useTemplateRef('backgroundImage-ref')
+const errorMessage =ref('')
+
+//对接后端的函数
+async function handleUpdate(){
+  const photo = photoRef.value.myPhoto //获取四个变量
+  const name = nameRef.value.myName?.trim()//去掉前后空格,为空返回空，不空调用.trim()
+  const profile = profileRef.value.myProfile?.trim()
+  const backgroundImage = backgroundImageRef.value.myBackgroundImage
+
+  errorMessage.value = ''
+  if(!photo){
+    errorMessage.value='头像不得为空'
+  }else if(!name){
+    errorMessage.value='名字不得为空'
+  }else if(!profile){
+    errorMessage.value='角色简介不得为空'
+  }else if(!backgroundImage){
+    errorMessage.value='聊天背景不得为空'
+  }else{
+    const formData = new FormData()//对接后端，因为传文件创建一个FORM表单数据FormData
+    formData.append('character_id',characterId)
+    formData.append('name',name)
+    formData.append('profile',profile)
+
+    if (photo !== character.value.photo){
+      formData.append('photo',base64ToFile(photo,'photo.png'))
+    }
+
+    if (backgroundImage !== character.value.background_image){
+    formData.append('background_image',base64ToFile(backgroundImage,'backgroundImage.png')) //key与`/api/create/character/create/`的变量一致
+    }
+
+    try{
+      const res = await api.post('/api/create/character/update/',formData)//对接后端的请求
+      const data = res.data //获取返回结果
+      if(data.result === 'success'){//成功自动跳转用户主页
+        await router.push({
+          name:'user-space-index',
+          params:{
+            user_id: user.id,
+          }
+        })
+      }else{
+        errorMessage.value = data.result
+      }
+
+    }catch (err){
+      console.log(err)
+    }
+  }
+}
+</script>
+
+<template>
+  <div v-if="character" class="flex justify-center"> <!-- 如果有角色才显示 -->
+    <div class="card w-120 bg-base-200 shadow-sm mt-18">
+      <div class="card-body">
+        <h3 class="text-lg font-bold my-4">更新角色</h3>
+        <Photo ref="photo-ref" :photo="character.photo"/>
+        <Name ref="name-ref" :name="character.name"/>
+        <Profile ref="profile-ref" :profile="character.profile"/>
+        <BackgroundImage ref="backgroundImage-ref" :backgroundImage="character.background_image"/>
+
+        <p v-if="errorMessage" class="text-sm text-red-500">{{errorMessage}}</p>
+
+        <div class="flex justify-center">
+          <button @click="handleUpdate" class="btn btn-neutral w-60 mt-2">更新</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+
+</style>
+```

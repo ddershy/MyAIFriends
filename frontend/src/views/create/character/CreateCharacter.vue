@@ -16,7 +16,7 @@ const router = useRouter()
 const photoRef = useTemplateRef('photo-ref') //四个引用
 const nameRef = useTemplateRef('name-ref')
 const profileRef = useTemplateRef('profile-ref')
-const bgImageRef = useTemplateRef('bgImage-ref')
+const backgroundImageRef = useTemplateRef('backgroundImage-ref')
 const errorMessage =ref('')
 
 //对接后端的函数
@@ -24,7 +24,7 @@ async function handleCreate(){
   const photo = photoRef.value.myPhoto //获取四个变量
   const name = nameRef.value.myName?.trim()//去掉前后空格,为空返回空，不空调用.trim()
   const profile = profileRef.value.myProfile?.trim()
-  const bgImage = bgImageRef.value.myBGImage
+  const backgroundImage = backgroundImageRef.value.myBackgroundImage
 
   errorMessage.value = ''
   if(!photo){
@@ -33,14 +33,14 @@ async function handleCreate(){
     errorMessage.value='名字不得为空'
   }else if(!profile){
     errorMessage.value='角色简介不得为空'
-  }else if(!bgImage){
+  }else if(!backgroundImage){
     errorMessage.value='聊天背景不得为空'
   }else{
     const formData = new FormData()//对接后端，因为传文件创建一个FORM表单数据FormData
     formData.append('name',name)
     formData.append('profile',profile)
     formData.append('photo',base64ToFile(photo,'photo.png'))
-    formData.append('background_image',base64ToFile(bgImage,'bgImage.png')) //key与`/api/create/character/create/`的变量一致
+    formData.append('background_image',base64ToFile(backgroundImage,'bgImage.png')) //key与`/api/create/character/create/`的变量一致
 
     try{
       const res = await api.post('/api/create/character/create/',formData)//对接后端的请求
@@ -57,7 +57,6 @@ async function handleCreate(){
       }
 
     }catch (err){
-      console.log(err)
     }
   }
 }
@@ -71,7 +70,7 @@ async function handleCreate(){
         <Photo ref="photo-ref"/>
         <Name ref="name-ref"/>
         <Profile ref="profile-ref"/>
-        <BackgroundImage ref="bgImage-ref"/>
+        <BackgroundImage ref="backgroundImage-ref"/>
 
         <p v-if="errorMessage" class="text-sm text-red-500">{{errorMessage}}</p>
 

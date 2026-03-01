@@ -32,7 +32,7 @@ const user = useUserStore()//引入刚定义的函数
           </div>
         </div>
         <div class="navbar-end">
-          <RouterLink v-if="user.isLogin()" :to="{name:'create-index'}" active-class="btn-active" class="btn btn-ghost text-lg mr-6">
+          <RouterLink v-if="user.isLogin()" :to="{name:'update-character',params:{character_id: 1}}" active-class="btn-active" class="btn btn-ghost text-lg mr-6">
             <CreateIcon/>
             创作
           </RouterLink>

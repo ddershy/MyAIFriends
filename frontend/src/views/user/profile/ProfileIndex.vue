@@ -35,7 +35,7 @@ async function handleUpdate(){
       formData.append('photo',base64ToFile(photo,'photo.png'))
     }
     try{
-      const res = await api.post('api/user/profile/update',formData)
+      const res = await api.post('api/user/profile/update/',formData)
       const data = res.data
       if(data.result === 'success'){
         user.setUserInfo(data)
@@ -43,7 +43,6 @@ async function handleUpdate(){
         errorMessage.value = data.result
       }
     }catch (err){
-      console.log(err)
     }
   }
 }

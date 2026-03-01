@@ -4,11 +4,11 @@ import CameraIcon from "@/views/user/profile/components/icon/CameraIcon.vue";
 import Croppie from 'croppie'
 import 'croppie/croppie.css'
 
-const props = defineProps(['bgImage'])
-const myBGImage = ref(props.bgImage)
+const props = defineProps(['backgroundImage'])
+const myBackgroundImage = ref(props.backgroundImage)
 
-watch(()=> props.bgImage,newVal =>{
-  myBGImage.value = newVal
+watch(()=> props.backgroundImage,newVal =>{
+  myBackgroundImage.value = newVal
 })
 
 const fileInputRef = useTemplateRef('file-input-ref') //绑定弹出文件框
@@ -16,7 +16,7 @@ const modalRef = useTemplateRef('modal-ref')
 const croppieRef = useTemplateRef('croppie-ref')
 let croppie = null
 
-async function openModal(bgImage){//打开文件框
+async function openModal(backgroundImage){//打开文件框
   modalRef.value.showModal()
 
   if(!croppie){
@@ -29,7 +29,7 @@ async function openModal(bgImage){//打开文件框
   }
 
   croppie.bind({
-    url:bgImage,
+    url:backgroundImage,
   })
 }
 
@@ -37,7 +37,7 @@ async function openModal(bgImage){//打开文件框
 async function crop(){
   if(!croppie) return//如果没有裁剪对象，直接返回
 
-  myBGImage.value = await croppie.result({//将我的头像换成裁剪后的
+  myBackgroundImage.value = await croppie.result({//将我的头像换成裁剪后的
     type:'base64',
     size:'viewport',
   })
@@ -62,7 +62,7 @@ onBeforeUnmount(() => {  // 释放croppie对象，防止内存泄漏
 })
 
 defineExpose({
-  myBGImage
+  myBackgroundImage
 })
 </script>
 
@@ -70,10 +70,10 @@ defineExpose({
   <fieldset class="fieldset">
     <label class="label text-base">聊天背景</label>
     <div class="avatar relative">
-      <div v-if="myBGImage" class="w-15 h-25 rounded-box"> <!--圆角矩形-->
-        <img :src="myBGImage" alt="">
+      <div v-if="myBackgroundImage" class="w-15 h-25 rounded-box"> <!--圆角矩形-->
+        <img :src="myBackgroundImage" alt="">
       </div>
-      <div v-else class="w-15 h-25 rounded-box bg-base-300"></div> <!--没有背景图的情况-->
+      <div v-else class="w-15 h-25 rounded-box bg-base-200"></div> <!--没有背景图的情况-->
       <div @click="fileInputRef.click()" class="w-15 h-25 rounded-box absolute left-0 top-0 bg-black/20 flex justify-center items-center cursor-pointer"> <!-- 渲染一个相机 -->
         <CameraIcon/>
       </div>
