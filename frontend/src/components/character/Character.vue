@@ -19,7 +19,6 @@ async function handleRemoveCharacter(){
       emit('remove',props.character.id)//调用函数，传参数
     }
   }catch (err){
-    console.log(err)
   }
 }
 </script>
