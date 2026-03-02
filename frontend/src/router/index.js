@@ -69,12 +69,12 @@ const router = createRouter({
         needLogin: false,
       }
     },
-    { //路由字典
+    { //路由字典 别人的空间
       path:'/user/space/:user_id', //':+P'=此处需要有一个参数P
       component:SpaceIndex,
       name:'user-space-index',
       meta:{
-        needLogin: true,
+        needLogin: false,
       }
     },
     { //路由字典

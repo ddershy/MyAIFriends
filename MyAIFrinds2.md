@@ -1,5 +1,18 @@
 # 一个伟大的开始！！！—— AIFriends
 ## 五、流式布局
+
+### 0. 删头像补丁
+修复每次用户上传头像会删除默认头像的问题
+函数写错了：
+```py
+def remove_old_photo(photo):
+    if photo and photo.name != 'user/photo/default.png':
+        old_path = settings.MEDIA_ROOT / photo.name
+        if os.path.exists(old_path):
+            os.remove(old_path)
+```
+修改为` 'user/photos/default.png'`
+
 ### 1 实现个人主页
 #### 1.1 创建后端
 在`AIFriends/backend/web/views/create/character/`目录下实现：`get_list.py`：返回角色列表和作者信息。
@@ -311,4 +324,54 @@ async function handleRemoveCharacter(){
 
 </style>
 ```
+
+#### 1.3 将前端代码打包到后端
+
+### 2. 实现首页
+#### 2.1 创建后端 index.py
+1. 在`AIFriends/backend/web/views/homepage/`软件包目录下实现：index.py：返回所有角色列表;
+2. 添加路由
+```py
+from rest_framework import status
+from rest_framework.views import APIView
+from rest_framework.response import Response
+
+from web.models.character import Character
+
+
+class HomepageIndexView(APIView):
+    def get(self, request):
+        try:
+            items_count = int(request.query_params.get('items_count'))
+            characters_raw = Character.objects.all().order_by('-id')[items_count:items_count+20]
+            characters = []
+            for character in characters_raw:
+                author = character.author
+                characters.append({
+                    'id': character.id,
+                    'name': character.name,
+                    'profile': character.profile,
+                    'photo': character.photo.url,
+                    'background_image': character.background_image.url,
+                    'author': {
+                        'user_id':author.user.id,
+                        'username': author.user.username,
+                        'photo': author.photo.url,
+                    }
+                })
+            return Response({
+                'results': 'success',
+                'characters': characters
+            })
+        except:
+            return Response({
+                'result': '系统异常，请稍后重试'
+            })
+```
+`    path('api/homepage/index/',HomepageIndexView.as_view()),
+`
+
+#### 2.2 实现前端 HomepageIndex.vue
+实现AIFriends/frontend/src/views/homepage/HomepageIndex.vue。
+
 

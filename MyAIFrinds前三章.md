@@ -711,7 +711,7 @@ def photo_upload_to(instance, filename):
 
 class UserProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE) #绑定
-    photo =models.ImageField(default='user/photos/default.ong', upload_to=photo_upload_to)
+    photo =models.ImageField(default='user/photos/default.png', upload_to=photo_upload_to)
     profile =models.TextField(default='你好，欢迎来找我玩!',max_length=500) #默认签名和最大长度，TextField中最大长度需要后续函数单独判读
     create_time=models.DateTimeField(default=now)#默认当前时间
     update_time=models.DateTimeField(default=now)
