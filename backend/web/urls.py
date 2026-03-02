@@ -6,6 +6,7 @@ from web.views.account.logout import LogoutView
 from web.views.account.refresh_token import RefreshTokenView
 from web.views.account.register import RegisterView
 from web.views.create.character.create import CreateCharacterView
+from web.views.create.character.get_list import GetListCharacterView
 from web.views.create.character.get_single import GetSingleCharacterView
 from web.views.create.character.remove import RemoveCharacterView
 from web.views.create.character.update import UpdateCharacterView
@@ -23,6 +24,7 @@ urlpatterns = [
     path('api/create/character/update/',UpdateCharacterView.as_view()),
     path('api/create/character/remove/',RemoveCharacterView.as_view()),
     path('api/create/character/get_single/',GetSingleCharacterView.as_view()),
+    path('api/create/character/get_list/',GetListCharacterView.as_view()),
     path('',index),
     re_path(r'^(?!media/|static/|assets/).*$', index)
 ]
