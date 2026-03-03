@@ -10,7 +10,7 @@ from web.models.friend import Friend
 
 
 # 定义“获取好友列表”的接口
-class GetListFriends(APIView):
+class GetListFriendsView(APIView):
     # 只有已认证（登录）的用户才能访问
     permission_classes = [IsAuthenticated]
 
@@ -49,12 +49,12 @@ class GetListFriends(APIView):
                         'profile': character.profile,  # 角色简介
                         'photo': character.photo.url,  # 角色头像URL
                         'background_image': character.background_image.url,  # 角色背景图URL
+                        'author': {
+                            'user_id': author.user_id,  # 作者关联的用户ID
+                            'username': author.user.username,  # 作者用户名
+                            'photo': author.photo.url,  # 作者头像URL
+                        },
                     },
-                    'author': {
-                        'user_id': author.user_id,  # 作者关联的用户ID
-                        'username': author.user.username,  # 作者用户名
-                        'photo': author.photo.url,  # 作者头像URL
-                    }
                 })
 
             return Response({

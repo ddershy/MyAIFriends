@@ -9,7 +9,7 @@ from web.models.user import UserProfile
 class GetListCharacterView(APIView):
     def get(self, request):
         try:
-            items_count = int(request.query_params.get('items_count'))#从 URL 查询参数中获取 items_count，并将其转换为整数。
+            items_count = int(request.query_params.get('items_count',0))#从 URL 查询参数中获取 items_count，并将其转换为整数。
             user_id = int(request.query_params.get('user_id'))
             user = User.objects.get(id=user_id)
             user_profile = UserProfile.objects.get(user=user)

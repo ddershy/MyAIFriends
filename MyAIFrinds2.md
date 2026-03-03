@@ -374,4 +374,872 @@ class HomepageIndexView(APIView):
 #### 2.2 实现前端 HomepageIndex.vue
 实现AIFriends/frontend/src/views/homepage/HomepageIndex.vue。
 
+```html
+<script setup>
+import {nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef} from "vue";
+import api from "@/js/http/api.js";
+import Character from "@/components/character/Character.vue";
 
+const characters = ref([])
+const isLoading = ref(false)
+const hasCharacter = ref(true)
+const sentinelRef = useTemplateRef('sentinel-ref')
+
+function checkSentinelVisible() {  // 判断哨兵是否能被看到
+  if (!sentinelRef.value) return false
+
+  const rect = sentinelRef.value.getBoundingClientRect()
+  return rect.top < window.innerHeight && rect.bottom > 0
+}
+
+async function loadMore(){
+  if (isLoading.value || !hasCharacter.value) return
+  isLoading.value=true
+
+  let newCharacters =[]
+  try{
+    const res = await api.get('/api/homepage/index/',{
+      params:{
+        items_count: characters.value.length,
+      }
+    })
+    const data = res.data
+    if(data.result === 'success'){
+      newCharacters = data.characters
+    }
+  }catch (err){
+    console.log(err)
+  }finally {
+    isLoading.value=false
+    if(newCharacters.length === 0){
+      hasCharacter.value = false
+    }else{
+      characters.value.push(...newCharacters)
+      await nextTick()
+
+      if(checkSentinelVisible()){
+        await loadMore()
+      }
+    }
+  }
+}
+
+let observer = null
+onMounted(async () => {
+  await loadMore()
+
+  observer = new IntersectionObserver(
+      entries => {
+        entries.forEach(entry => {//能看到监听器就加载一遍
+          if(entry.isIntersecting){
+            loadMore()
+          }
+        })
+      },
+      {root:null,rootMargin:'2px',threshold:0}
+  )
+
+  observer.observe(sentinelRef.value)
+})
+
+onBeforeUnmount(() => {
+  observer?.disconnect()
+})
+
+</script>
+
+<template>
+  <div class="flex flex-col items-center mb-12">
+    <div class="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-9 mt-12 justify-items-center w-full px-9">
+      <Character
+          v-for="character in characters"
+          :key="character.id"
+          :character="character"
+      />
+    </div>
+
+    <div ref="sentinel-ref" class="h-2 mt-8"></div>
+    <div v-if="isLoading" class="text-gray-500 mt-4">加载中...</div>
+    <div v-else-if="!hasCharacter" class="text-gray-500 mt-4">没有更多的角色了</div>
+  </div>
+</template>
+
+<style scoped>
+
+</style>
+```
+
+#### 2.3 添加搜索功能
+在`AIFriends/frontend/src/components/navbar/NavBar.vue`中添加搜索逻辑：
+1. 点击搜索按钮后，打开首页，并将搜索文本添加到url的query参数中。
+2. 监听route.query.q，并将最新值赋给searchQuery。这样刷新页面后，搜索文本才能自动填充到搜索框内。   
+
+##### 2.3.1 NavBar.vue
+1. 增加变量保存在搜索框中输入的内容，`const searchQuery = ref('')`；
+2. 将变量绑定在输入搜索栏里：`<input v-model="searchQuery" class="input join-item rounded-l-full " placeholder="搜索你感兴趣的内容" />` ；
+3. 搜索函数`function handleSerch()`；
+4. 将搜索栏变成一个表单，`          <form @submit.prevent="handleSerch" class="join w-4/5 flex justify-center">`;@submit指可以用回车键触发搜索，.prevent为搜索后不得刷新页面，handleSearch为触发的函数；
+5. 回车后希望将信息放在url中并打开首页：
+   1. 打开首页，router
+   2. 将输入的内容放在q中，
+   3. q在url中，
+```js
+function handleSerch(){
+  router.push({
+    name:'home-index',
+    query:{
+      q: searchQuery.value.trim()//删前后空格，并将searchQuery的内容放在q中
+    }
+  })
+}
+```
+6. 搜索框内保留剛剛輸入的内容 route
+```js
+const route = useRoute()
+watch(() => route.query.q, newQ =>{
+  searchQuery.value = newQ ||''
+})
+```
+
+```html
+<script setup>
+
+import MenuIcon from "@/components/navbar/icons/MenuIcon.vue";
+import HomepageIcon from "@/components/navbar/icons/HomepageIcon.vue";
+import FriendIcon from "@/components/navbar/icons/FriendIcon.vue";
+import CreateIcon from "@/components/navbar/icons/CreateIcon.vue";
+import SearchIcon from "@/components/navbar/icons/SearchIcon.vue";
+import {useUserStore} from "@/stores/user.js";
+import UserMenu from "@/components/navbar/UserMenu.vue";
+import {ref, watch} from "vue";
+import Router from "@/router/index.js";
+import {useRoute, useRouter} from "vue-router";
+
+const user = useUserStore()//引入刚定义的函数
+const searchQuery = ref('')
+const router = useRouter()
+const route = useRoute()
+
+watch(() => route.query.q, newQ =>{
+  searchQuery.value = newQ ||''
+})
+
+function handleSerch(){
+  router.push({
+    name: 'home-index',
+    query:{
+      q: searchQuery.value.trim()//删前后空格，并将searchQuery的内容放在q中
+    }
+  })
+}
+</script>
+
+<template>
+  <div class="drawer lg:drawer-open">
+    <input id="my-drawer-4" type="checkbox" class="drawer-toggle" />
+    <div class="drawer-content">
+      <nav class="navbar w-full bg-base-100 shadow-sm">
+        <div class="navbar-start">
+          <label for="my-drawer-4" aria-label="open sidebar" class="btn btn-square btn-ghost">
+            <MenuIcon/>
+          </label>
+          <div class="px-2 font-bold text-xl">AIFriends</div>
+        </div>
+        <div class="navbar-center w-4/5 max-w-180 flex justify-center">
+          <form @submit.prevent="handleSerch" class="join w-4/5 flex justify-center">
+            <input v-model="searchQuery" class="input join-item rounded-l-full " placeholder="搜索你感兴趣的内容" />
+            <button class="btn join-item rounded-r-full gap-0">
+              <SearchIcon/>
+              搜索
+            </button>
+          </form>
+        </div>
+        <div class="navbar-end">
+          <RouterLink v-if="user.isLogin()" :to="{name:'create-index'}" active-class="btn-active" class="btn btn-ghost text-lg mr-6">
+            <CreateIcon/>
+            创作
+          </RouterLink>
+          <RouterLink v-if="user.hasPulledUserInfo &&!user.isLogin()" :to="{name:'user-account-login-index'}" active-class="btn-active" class="btn btn-ghost text-lg">
+            登录
+          </RouterLink>
+          <UserMenu v-else-if="user.isLogin()"/>
+        </div>
+      </nav>
+      <slot></slot>
+    </div>
+
+    <div class="drawer-side is-drawer-close:overflow-visible">
+      <label for="my-drawer-4" aria-label="close sidebar" class="drawer-overlay"></label>
+      <div class="flex min-h-full flex-col items-start bg-base-200 is-drawer-close:w-16 is-drawer-open:w-54">
+        <ul class="menu w-full grow">
+          <li>
+            <RouterLink :to="{name: 'home-index'}" active-class="menu-focus" class="is-drawer-close:tooltip is-drawer-close:tooltip-right py-3" data-tip="首页">
+              <HomepageIcon/>
+              <span class="is-drawer-close:hidden text-base ml-2 whitespace-nowrap">首页</span>
+            </RouterLink>
+          </li>
+          <li>
+            <RouterLink :to="{name: 'friend-index'}" active-class="menu-focus" class="is-drawer-close:tooltip is-drawer-close:tooltip-right py-3" data-tip="好友">
+              <FriendIcon/>
+              <span class="is-drawer-close:hidden text-base ml-2 whitespace-nowrap">好友</span>
+            </RouterLink>
+          </li>
+          <li>
+            <RouterLink :to="{name: 'create-index'}" active-class="menu-focus" class="is-drawer-close:tooltip is-drawer-close:tooltip-right py-3" data-tip="创作">
+              <CreateIcon/>
+              <span class="is-drawer-close:hidden text-base ml-2 whitespace-nowrap">创作</span>
+            </RouterLink>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+
+</style>
+
+```
+##### 2.3.2 实现搜索 HomepageIndex.vue
+1. 在HomepageIndex.vue添加监听内容，watch；
+```js
+watch(() => route.query.q, newQ =>{//当q发生改变，刷新整个页面内容
+  reset()
+})
+```
+2. 当q发生改变刷新整个首页内容，添加辅助函数`function reset(){`
+```js
+function reset(){
+  characters.value=[] //把之前元素清空
+  isLoading.value = false
+  hasCharacter.value = true
+  loadMore()
+}
+```
+3. 每次reset需要把前端内容传递给后端`try->search_query`
+```js
+try{
+    const res = await api.get('/api/homepage/index/',{
+      params:{
+        items_count: characters.value.length,
+        search_query:route.query.q ||''
+      }
+    })
+    ...
+}
+```
+```html
+<script setup>
+import {nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch} from "vue";
+import api from "@/js/http/api.js";
+import Character from "@/components/character/Character.vue";
+import {useRoute} from "vue-router";
+
+const characters = ref([])
+const isLoading = ref(false)
+const hasCharacter = ref(true)
+const sentinelRef = useTemplateRef('sentinel-ref')
+const route = useRoute()
+
+function checkSentinelVisible() {  // 判断哨兵是否能被看到
+  if (!sentinelRef.value) return false
+
+  const rect = sentinelRef.value.getBoundingClientRect()
+  return rect.top < window.innerHeight && rect.bottom > 0
+}
+
+async function loadMore(){
+  if (isLoading.value || !hasCharacter.value) return
+  isLoading.value=true
+
+  let newCharacters =[]
+  try{
+    const res = await api.get('/api/homepage/index/',{
+      params:{
+        items_count: characters.value.length,
+        search_query:route.query.q ||''
+      }
+    })
+    const data = res.data
+    if(data.result === 'success'){
+      newCharacters = data.characters
+    }
+  }catch (err){
+    console.log(err)
+  }finally {
+    isLoading.value=false
+    if(newCharacters.length === 0){
+      hasCharacter.value = false
+    }else{
+      characters.value.push(...newCharacters)
+      await nextTick()
+
+      if(checkSentinelVisible()){
+        await loadMore()
+      }
+    }
+  }
+}
+
+let observer = null
+onMounted(async () => {
+  await loadMore()
+
+  observer = new IntersectionObserver(
+      entries => {
+        entries.forEach(entry => {//能看到监听器就加载一遍
+          if(entry.isIntersecting){
+            loadMore()
+          }
+        })
+      },
+      {root:null,rootMargin:'2px',threshold:0}
+  )
+
+  observer.observe(sentinelRef.value)
+})
+
+function reset(){
+  characters.value=[] //把之前元素清空
+  isLoading.value = false
+  hasCharacter.value = true
+  loadMore()
+}
+
+watch(() => route.query.q, newQ =>{//当q发生改变，刷新整个页面内容
+  reset()
+})
+
+onBeforeUnmount(() => {
+  observer?.disconnect()
+})
+
+</script>
+
+<template>
+  <div class="flex flex-col items-center mb-12">
+    <div class="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-9 mt-12 justify-items-center w-full px-9">
+      <Character
+          v-for="character in characters"
+          :key="character.id"
+          :character="character"
+      />
+    </div>
+
+    <div ref="sentinel-ref" class="h-2 mt-8"></div>
+    <div v-if="isLoading" class="text-gray-500 mt-4">加载中...</div>
+    <div v-else-if="!hasCharacter" class="text-gray-500 mt-4">没有更多的角色了</div>
+  </div>
+</template>
+
+<style scoped>
+
+</style>
+```
+##### 2.3.3 传递给后端 backend/web/views/homepage/index.py
+
+1. 获取前端内容`            search_query = request.query_params.get('search_query','').strip()`;
+2. 名字或者简介匹配都可以呈现：`Q(name__icontains=search_query)  |  Q(profile__icontains=search_query)  ` Django自带；`contains`匹配，`icontains`忽略大小写后匹配；
+3. characters_raw = queryset.order_by('-id')[items_count:items_count+20]
+
+```py
+    def get(self, request):
+        try:
+            items_count = int(request.query_params.get('items_count'))
+            search_query = request.query_params.get('search_query','').strip()
+            if search_query:
+                queryset  = Character.objects.filter(
+                    Q(name__icontains=search_query)  |  Q(profile__icontains=search_query)
+                )
+            else:
+                queryset = Character.objects.all() #所有内容
+            characters_raw = queryset.order_by('-id')[items_count:items_count+20]
+```
+
+### 3. 实现好友页面
+#### 3.1 创建后端
+##### 3.1.1 创建数据库 friend.py
+在`AIFriends/backend/web/models/friend.py`中创建Friend数据库。
+
+1. 引入数据库包`from django.db import models`;
+2. 短期记忆`    memory = models.TextField(default="",max_length=5000,blank=True,null=True)`；
+3. 返回格式`        return f"{self.character.name} - {self.me.user.username} - {localtime(self.create_time).strftime('%Y-%m-%d %H:%M:%S')}"`;
+```py
+from django.db import models
+from django.utils.timezone import now, localtime
+
+from web.models.character import Character
+from web.models.user import UserProfile
+
+
+class Friend(models.Model):
+    me = models.ForeignKey(UserProfile, on_delete=models.CASCADE)
+    character = models.ForeignKey(Character, on_delete=models.CASCADE)
+    memory = models.TextField(default="",max_length=5000,blank=True,null=True)
+    create_time = models.DateTimeField(default=now)
+    update_time = models.DateTimeField(default=now)
+
+    def __str__(self):
+        return f"{self.character.name} - {self.me.user.username} - {localtime(self.create_time).strftime('%Y-%m-%d %H:%M:%S')}"
+```
+##### 3.1.2 在admain中加friend数据库
+1. `backend/web/admin.py`
+```py
+from django.contrib import admin
+from web.models.user import UserProfile
+from web.models.character import Character
+from web.models.friend import Friend
+
+@admin.register(UserProfile)#注册
+class UserProfileAdmin(admin.ModelAdmin):
+    raw_id_fields = ('user',) #逗号必须保留！！！为一个列表，查找时页面加载100条；若写成`raw_id_fields`,则添加用户时，名字为所有用户的下拉菜单
+
+@admin.register(Character)
+class CharacterAdmin(admin.ModelAdmin):
+    raw_id_fields = ('author',)
+    
+@admin.register(Friend)
+class FriendAdmin(admin.ModelAdmin):
+    raw_id_fields = ('me','character')#所有外键
+    
+```
+
+2. 在后端同步数据库
+`AIFriends\backend> python .\manage.py makemigrations
+AIFriends\backend> python .\manage.py migrate   
+`
+
+
+##### 3.1.3  创建views 
+在软件包`AIFriends/backend/web/views/friend/`目录下实现：
+1. `get_or_create.py`：如果有该好友，则返回；如果没有，则创建并返回
+
+```py
+# 导入 DRF 的基础视图类
+from rest_framework.views import APIView
+# 用于构造 HTTP 响应
+from rest_framework.response import Response
+# 用于设置接口访问权限
+from rest_framework.permissions import IsAuthenticated
+
+# 导入好友模型
+from web.models.friend import Friend
+# 导入用户扩展信息模型
+from web.models.user import UserProfile
+
+
+# 定义一个视图类：用于“获取或创建好友关系”
+class GetOrCreateFriendView(APIView):
+    # 设置权限：必须是已认证（登录）用户才能访问该接口
+    permission_classes = [IsAuthenticated]
+
+    # 定义 POST 请求处理函数（因为涉及创建操作，所以使用 POST）
+    def post(self, request):  # 要创建用 post
+        try:
+            # 从前端传来的请求体中获取 character_id
+            character_id = request.data['character_id']
+
+            # 获取当前登录用户
+            user = request.user
+
+            # 根据当前登录用户，查找对应的 UserProfile（一对一关系）
+            user_profile = UserProfile.objects.get(user=user)
+
+            # 查询是否已经存在该用户与该角色之间的好友关系
+            # me 表示当前用户，character_id 表示目标角色
+            friends = Friend.objects.filter(character_id=character_id, me=user_profile)
+
+            # 如果好友关系已经存在
+            if friends.exists():
+                # 取第一条记录（理论上应该只有一条）
+                friend = friends.first()  # 若存在获取第一个
+            else:
+                # 如果不存在，则创建一条新的好友关系记录
+                friend = Friend.objects.create(character_id=character_id, me=user_profile)
+
+            # 获取好友关系对应的角色对象
+            character = friend.character
+
+            # 获取角色的作者信息
+            author = character.author
+
+            # 构造并返回成功响应数据
+            return Response({
+                'result': 'success',
+                'friend': {
+                    'id': friend.id,  # 好友关系的ID
+                    'character': {
+                        'id': character.id,  # 角色ID
+                        'name': character.name,  # 角色名称
+                        'profile': character.profile,  # 角色简介
+                        'photo': character.photo.url,  # 角色头像图片URL
+                        'background_image': character.background_image.url,  # 角色背景图URL
+                        'author': {
+                            'user_id': author.user_id,  # 作者关联的用户ID
+                            'username': author.user.username,  # 作者用户名
+                            'photo': author.photo.url,  # 作者头像URL
+                        }
+                    }
+                }
+            })
+        except:
+            return Response({
+                'result': '系统异常，请稍后重试',
+            })
+```
+2. `remove.py`：删除好友
+
+```py
+# 导入 DRF 的基础视图类
+from rest_framework.views import APIView
+# 用于构造 HTTP 响应对象
+from rest_framework.response import Response
+# 用于限制接口必须登录后才能访问
+from rest_framework.permissions import IsAuthenticated
+
+# 导入好友关系模型
+from web.models.friend import Friend
+
+
+# 定义“删除好友关系”的接口视图
+class RemoveFriendView(APIView):
+    # 设置权限：必须是已认证用户
+    permission_classes = [IsAuthenticated]
+
+    # 使用 POST 请求执行删除操作
+    def post(self, request):
+        try:
+            # 从前端传递的数据中获取 friend_id（好友关系的主键）
+            friend_id = request.data['friend_id']
+
+            # 执行删除操作：
+            # 1. id=friend_id：确保删除的是指定的好友记录
+            # 2. me__user=request.user：确保该好友关系属于当前登录用户
+            #    me 是外键指向 UserProfile
+            #    me__user 是跨表查询，确保只能删除自己的好友关系
+            Friend.objects.filter(
+                id=friend_id,
+                me__user=request.user
+            ).delete()
+
+            # 删除成功后返回 success
+            return Response({
+                'result': 'success',
+            })
+        except:
+            return Response({
+                'result': '系统异常，请稍后重试'
+            })
+```
+
+3. `get_list.py`：获取好友列表
+
+```py
+# 导入 DRF 的 Response 用于构造接口返回数据
+from rest_framework.response import Response
+# 导入 DRF 的 APIView 基类
+from rest_framework.views import APIView
+# 设置接口权限（必须登录）
+from rest_framework.permissions import IsAuthenticated
+
+# 导入好友关系模型
+from web.models.friend import Friend
+
+
+# 定义“获取好友列表”的接口
+class GetListFriendsView(APIView):
+    # 只有已认证（登录）的用户才能访问
+    permission_classes = [IsAuthenticated]
+
+    # 使用 GET 请求获取好友列表
+    def get(self, request):
+        try:
+            # 从查询参数中获取 items_count，用于分页（偏移量）
+            # 如果前端未传，默认值为 0
+            items_count = int(request.query_params.get('items_count', 0))
+
+            # 查询当前用户的好友关系：
+            # me__user=request.user 表示筛选当前登录用户的好友
+            # 按 update_time 倒序排列（最新更新的排在前面）
+            # 使用切片实现分页：每次取 20 条
+            friends_raw = Friend.objects.filter(
+                me__user=request.user,
+            ).order_by('-update_time')[items_count: items_count + 20]
+
+            # 定义一个空列表，用于存储最终返回的数据
+            friends = []  # 返回数组
+
+            # 遍历查询结果
+            for friend in friends_raw:
+                # 获取好友对应的角色对象
+                character = friend.character
+
+                # 获取角色的作者对象
+                author = character.author
+
+                # 构造单条好友数据并添加到列表
+                friends.append({
+                    'id': friend.id,  # 好友关系ID
+                    'character': {
+                        'id': character.id,  # 角色ID
+                        'name': character.name,  # 角色名称
+                        'profile': character.profile,  # 角色简介
+                        'photo': character.photo.url,  # 角色头像URL
+                        'background_image': character.background_image.url,  # 角色背景图URL
+                        'author': {
+                            'user_id': author.user_id,  # 作者关联的用户ID
+                            'username': author.user.username,  # 作者用户名
+                            'photo': author.photo.url,  # 作者头像URL
+                        },
+                    },
+                })
+
+            return Response({
+                'result': 'success',
+                'friends': friends,
+            })
+
+        except:
+            return Response({
+                'result': '系统错误，请稍后重试',
+            })
+```
+
+4. 添加路由`backend/web/urls.py`
+```py
+  path('api/friend/get_or_create/',GetOrCreateFriendView.as_view()),
+    path('api/friend/remove/',RemoveFriendView.as_view()),
+    path('api/friend/get_list/',GetListCharacterView.as_view()),
+```
+
+#### 3.2 实现前端
+##### 3.2.1 创建聊天界面组件
+目录`AIFriends/frontend/src/components/character/chat_field/`目录下创建：
+1. ChatField.vue组件：显示聊天界面
+      1. 获取从母组件取得的信息；
+      2. 创建文件框及其引用`<dialog ref="modal-ref" class="modal">`;
+      3. 暴漏显示函数；
+      4. 将聊天框组件引入`frontend/src/components/character/Character.vue`;`    <ChatField ref="chat-field-ref"/>`，
+
+```html
+<!-- frontend/src/components/character/Character.vue -->
+<script setup>
+import {ref, useTemplateRef} from "vue";
+import {useUserStore} from "@/stores/user.js";
+import UpdateIcon from "@/components/character/icons/UpdateIcon.vue";
+import RemoveIcon from "@/components/character/icons/RemoveIcon.vue";
+import api from "@/js/http/api.js";
+import {useRouter} from "vue-router";
+
+const props=defineProps(['character','canEdit'])//接收变量
+const emit = defineEmits(['remove'])//接收响应
+const isHover = ref(false)//判断是否悬浮
+const user = useUserStore()
+const router = useRouter()
+
+async function handleRemoveCharacter(){
+  try{
+    const res = await api.post('/api/create/character/remove/',{//发送请求
+      character_id:props.character.id,
+    })
+    if(res.data.result === 'success'){
+      emit('remove',props.character.id)//调用函数，传参数
+    }
+  }catch (err){
+  }
+}
+
+const charFieldRef = useTemplateRef('chat-field-ref')
+const friend = ref(null) //存储传递过来的朋友
+
+async function openChatFiled() {//打开聊天框的逻辑
+  if(!user.isLogin()){//没登陆
+    await router.push({
+      name:'user-account-login-index'//弹到登录界面
+    })
+  } else{
+    try{
+      const res = await  api.post('/api/friend/get_or_create/',{
+        character_id:props.character.id,
+      })
+      const data = res.data
+      if(data.result === 'success'){
+        friend.value = data.friend //先保存
+        charFieldRef.value.showModal()
+      }
+    }catch (err){
+      console.log(err)
+    }
+  }
+}
+</script>
+
+<template>
+  <div>
+    <div class="avatar cursor-pointer" @mouseover="isHover=true" @mouseout="isHover=false" @click="openChatFiled">
+      <div class="w-60 h-100 rounded-2xl relative">
+        <img :src="character.background_image" class="transition-transform duration-300" :class="{'scale-120': isHover}" alt="">
+        <div class="absolute left-0 top-50 w-60 h-50 bg-linear-to-t from-black/40 to-transparent"></div>
+        <div v-if="canEdit && character.author.user_id === user.id" class="absolute right-0 top-45">
+          <RouterLink :to="{name:'update-character',params:{character_id: character.id}}" class="btn btn-circle btn-ghost bg-transparent">
+            <UpdateIcon/>
+          </RouterLink>
+          <button @click="handleRemoveCharacter" class="btn btn-circle btn-ghost bg-transparent">
+            <RemoveIcon/>
+          </button>
+        </div>
+
+        <div class="absolute left-4 top-48 avatar">
+          <div class="w-16 rounded-full ring-3 ring-base-300">
+            <img :src="character.photo" alt="">
+          </div>
+        </div>
+        <div class="absolute left-24 right-4 top-55 text-white font-bold line-clamp-1 break-all">
+          {{character.name}}
+        </div>
+        <div class="absolute left-4 right-4 top-68 text-white line-clamp-4 break-all">
+          {{character.profile}}
+        </div>
+      </div>
+    </div>
+    <RouterLink :to="{name:'user-space-index',params:{user_id:character.author.user_id}}" class="flex items-center mt-4 gap-2 w-60">
+      <div class="avatar">
+        <div class="w-7 rounded-full">
+          <img :src="character.author.photo" alt="">
+        </div>
+      </div>
+      <div class="text-sm line-clamp-1 break-all">{{character.author.username}}</div>
+    </RouterLink>
+    <ChatField ref="chat-field-ref" :friend="friend"/>
+  </div>
+</template>
+
+<style scoped>
+
+</style>
+```
+  5. 将模态框背景图片设置成聊天背景：
+```py
+const modalStyle = computed(() => {
+  if (props.friend) {
+    return {
+      backgroundImage: `url(${props.friend.character.background_image})`,
+      backgroundSize: 'cover',
+      backgroundPosition: 'center',
+      backgroundRepeat: 'no-repeat',
+    }
+  } else {
+    return {}
+  }
+})
+```
+
+```html
+<!-- ChartField.vue -->
+<script setup>
+import {computed, useTemplateRef} from "vue";
+import InputField from "@/components/character/chat_field/input_field/InputField.vue";
+import CharacterPhotoField from "@/components/character/chat_field/character_photo_field/CharacterPhotoField.vue";
+
+const props = defineProps(['friend'])
+const modalRef= useTemplateRef('modal-ref')
+
+function showModal(){
+  modalRef.value.showModal()
+}
+
+const modalStyle = computed(() => {//将模态框背景图片设置成聊天背景：
+  if (props.friend) {
+    return {
+      backgroundImage: `url(${props.friend.character.background_image})`,
+      backgroundSize: 'cover', //大小覆盖
+      backgroundPosition: 'center',
+      backgroundRepeat: 'no-repeat',
+    }
+  } else {
+    return {}
+  }
+})
+
+defineExpose({
+  showModal,
+})
+</script>
+
+<template>
+  <dialog ref="modal-ref" class="modal">
+    <div class="modal-box w-90 h-150" :style="modalStyle">
+      <button @click="modalRef.close()" class="btn btn-sm btn-circle btn-ghost bg-transparent absolute top-1 right-1">✕</button>
+      <InputField />
+      <CharacterPhotoField v-if="friend" :character="friend.character"/>
+    </div>
+  </dialog>
+</template>
+
+<style scoped>
+
+</style>
+```
+
+2. input_field/InputField.vue组件：聊天输入框
+   1. input的提示文字：`placeholder="文本输入..."`;
+   2. input毛玻璃:`class =backdrop-blur-smtext-white`
+   3. 实现发送和开麦功能；
+   4. 实现左上角头像和用户名；
+```html
+<script setup>
+
+import SendIcon from "@/components/character/icons/SendIcon.vue";
+import MicIcon from "@/components/character/icons/MicIcon.vue";
+</script>
+
+<template>
+  <div class="absolute bottom-4 left-2 h-12 w-86 flex items-center">
+    <input
+        class="input bg-black/30  backdrop-blur-smtext-white text-white w-full h-full rounded-2xl"
+        type="text"
+        placeholder="文本输入..."
+    >
+    <div class="absolute right-2 w-8 h-8 flex justify-center items-center cursor-pointer">
+      <SendIcon/>
+    </div>
+    <div class="absolute right-10 w-8 h-8 flex justify-center items-center cursor-pointer">
+      <MicIcon/>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+
+</style>
+```
+3. character_photo_field/CharacterPhotoField.vue组件：虚拟角色头像
+```html
+<script setup>
+defineProps(['character'])
+</script>
+
+<template>
+  <div class="absolute letf-1 max-w-48 top-6 h-10 w-fit rounded-full bg-black/50 flex items-center gap-2 px-2">
+    <div class="avatar">
+      <div class="w-8 rounded-full">
+        <img :src="character.photo" alt="">
+      </div>
+    </div>
+    <div class="text-white text-sm line-clamp-1 break-all">
+      {{ character.name }}
+    </div>
+  </div>
+</template>
+
+<style scoped>
+
+</style>
+```
+
+##### 3.2.2 实现好友列表页面 FriendIndex.vue
+实现`AIFriends/frontend/src/views/friend/FriendIndex.vue`。
+1. 实现删除好友功能。
+2. 阻止卡片内的点击事件向上传播：@click.top。
+3. character= models.ForeignKey(Character, on_delete=models.CASCADE)：当删除character时，会自动将关联的friend删掉。
