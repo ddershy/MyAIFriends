@@ -1240,6 +1240,158 @@ defineProps(['character'])
 
 ##### 3.2.2 实现好友列表页面 FriendIndex.vue
 实现`AIFriends/frontend/src/views/friend/FriendIndex.vue`。
-1. 实现删除好友功能。
-2. 阻止卡片内的点击事件向上传播：@click.top。
-3. character= models.ForeignKey(Character, on_delete=models.CASCADE)：当删除character时，会自动将关联的friend删掉。
+1. 获取好友列表、设置哨兵、渲染、同界面渲染逻辑；
+2. 实现删除好友功能：
+   1. 在好友页面加删除按钮；
+   2. 在好友列表实现删除`async function removeFried(friendID){   friends.value = friends.value.filter(f => f.id !== friendID)} `;
+   3. 修改<Character>，增加接收变量:`const props=defineProps(['character','canEdit','canRemoveFriend','firendID'])`
+   4. 在<Character>内增加删除函数:
+```js
+async function handleRemoveFriend(){
+  try{
+    const res = await api.post('/api/friend/remove/',{
+      friend_id: props.friendID,
+    })
+    if(res.data.result === 'success')
+      emit('remove',props.friendID)
+  }catch (err){
+    console.log(err)
+  }
+}
+
+<div v-if="canRemoveFriend" class="absolute right-0 top-50">
+          <button @click="handleRemoveFriend" class="btn btn-ghost btn-circle bg-transparent">
+            <RemoveIcon/>
+          </button>
+        </div>
+
+```
+  
+3. 阻止卡片内的点击事件向上传播即因为删除键在卡片上，点击删除后会同时触发卡片的逻辑，需阻止<Character>：@click.top:
+`<button @click.stop="handleRemoveFriend" class="btn btn-ghost btn-circle bg-transparent">`;
+     1. 绑定后发现只触发get_or_creat，因为`openChatFiled`绑定在了最外层，修改到背景容器 <div class="w-60 h-100 rounded-2xl relative"> 上可正确进行；
+     2. 给超链接也绑定阻止调用逻辑`          <RouterLink @click.stop >`
+
+
+4. character= models.ForeignKey(Character, on_delete=models.CASCADE)：当删除character时，会自动将关联的friend删掉。
+```html
+<script setup>
+import {nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef} from "vue";
+import Character from "@/components/character/Character.vue";
+import api from "@/js/http/api.js";
+
+const friends = ref([])
+const isLoading = ref(false)
+const hasFriends = ref(true)
+const sentinelRef =useTemplateRef('sentinel-ref')
+
+function checkSentinelVisible() {  // 判断哨兵是否能被看到
+  if (!sentinelRef.value) return false
+
+  const rect = sentinelRef.value.getBoundingClientRect()
+  return rect.top < window.innerHeight && rect.bottom > 0
+}
+
+
+async function loadMore(){
+  if(isLoading.value || !hasFriends.value) return
+  isLoading.value = true
+
+  let newFriends=[]
+  try{
+    const res = await api.get('/api/friend/get_list/',{
+      params:{
+        items_count:friends.value.length,
+      }
+    })
+    const data= res.data
+    if(data.result === 'success'){
+      newFriends = data.friends
+    }
+  }catch (err) {
+    console.log(err)
+  }finally {
+    isLoading.value=false
+    if(newFriends.length === 0){
+      hasFriends.value = false
+    }else{
+      friends.value.push(...newFriends)
+      await nextTick()
+
+      if(checkSentinelVisible())
+        await loadMore()
+    }
+  }
+}
+
+let observer = null
+onMounted(async () => {
+  await loadMore()  // 加载新元素
+
+  observer = new IntersectionObserver(
+    entries => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          loadMore()
+        }
+      })
+    },
+    {root: null, rootMargin: '2px', threshold: 0}
+  )
+
+  //监听哨兵元素， 每次哨兵被看到时，都会触发一次
+  observer.observe(sentinelRef.value)
+})
+
+async function removeFriend(friendID){
+  friends.value = friends.value.filter(f => f.id !== friendID)
+}
+
+onBeforeUnmount(() => {
+  observer?.disconnect()  // 解绑监听器
+})
+</script>
+
+<template>
+  <div class="flex flex-col items-center mb-12">
+    <div class="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-9 mt-12 justify-items-center w-full px-9">
+      <Character
+          v-for="friend in friends"
+          :key="friend.id"
+          :character="friend.character"
+          :canRemoveFriend="true"
+          :friendID="friend.id"
+          @remove="removeFriend"
+      />
+    </div>
+
+    <div ref="sentinel-ref" class="h-2 wt-8"></div>
+    <div v-if="isLoading" class="text-gray-500 mt-4">加载中...</div>
+    <div v-else-if="!hasFriends" class="text-gray-500 mt-4">没有更多的聊天了</div>
+  </div>
+</template>
+
+<style scoped>
+
+</style>
+```
+
+## 六、文字聊天
+
+### 0. 补丁
+修复bug：在首页点进其他用户的个人空间后，再去右上角点击自己的个人空间，页面内容没更新。
+`frontend/src/views/user/space/SpaceIndex.vue` 增加监听space id的逻辑，当id发生变化后自动刷新页面。
+```py
+function reset(){
+  userProfile.value=null
+  characters.value = []
+  isLoading.value= false
+  hasCharacter.value = true
+  loadMore()
+}
+
+watch(() => route.params.user_id,() => {
+  reset()
+})
+```
+### 1. 实现聊天后端
