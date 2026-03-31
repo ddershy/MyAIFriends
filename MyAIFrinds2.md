@@ -1381,7 +1381,7 @@ onBeforeUnmount(() => {
 ### 0. 补丁
 修复bug：在首页点进其他用户的个人空间后，再去右上角点击自己的个人空间，页面内容没更新。
 `frontend/src/views/user/space/SpaceIndex.vue` 增加监听space id的逻辑，当id发生变化后自动刷新页面。
-```py
+```js
 function reset(){
   userProfile.value=null
   characters.value = []
@@ -1395,3 +1395,165 @@ watch(() => route.params.user_id,() => {
 })
 ```
 ### 1. 实现聊天后端
+
+安装`langgraph`：`pip install langgraph langchain langchain-openai`
+
+安装`python-dotenv`：`pip install python-dotenv`，负责加载环境变量,不将api key放在代码中
+
+
+#### 1.1 创建数据库
+在`AIFriends/backend/web/models/friend.py`中创建数据库Message。
+
+```py
+
+class Message(models.Model):
+    friend = models.ForeignKey(Friend, on_delete=models.CASCADE)
+    user_message= models.TextField(max_length = 500)
+    input = models.TextField(max_length = 500)
+    output = models.TextField(max_length = 500)
+    input_tokens = models.IntegerField(default=0)
+    output_tokens = models.IntegerField(default=0)
+    total_tokens = models.IntegerField(default=0)
+    create_time = models.DateTimeField(default=now)
+    
+    def __str__(self):
+        return f"{self.friend.character.name} - {self.friend.me.user.username} - {self.user_message[:50]} - {localtime(self.create_time).strftime('%Y-%m-%d %H:%M:%S')}"
+```
+
+为了可以在管理员页面看到Message页面，需要将Message加入admin中。
+```py
+@admin.register(Message)
+class MessageAdmin(admin.ModelAdmin):
+    raw_id_fields = ('friend',)
+```
+`\backend> python .\manage.py makemigrations  `；` python .\manage.py migrate  `
+
+#### 1.2 实现views
+1. 创建文件：`AIFriends/backend/.env`，用来存环境变量。
+   1. 在AIFriends/.gitignore中添加*.env。
+   2. 如果git status后仍然有.env，可以执行：git rm --cached -f backend/.env来清除对.env的索引。
+   3. 在文件中添加：
+```py
+API_KEY=""  # 替换成自己创建的API Key
+API_BASE="https://dashscope.aliyuncs.com/compatible-mode/v1"
+```
+
+2. 在`AIFriends/backend/backend/settings.py`开头添加：
+
+```py
+from dotenv import load_dotenv
+
+load_dotenv()
+```
+然后要重启Django服务，这样才可以加载环境变量。
+
+3. 实现 `AIFriends/backend/web/views/friend/message/chat/chat.py`。 message和chat均为软件包；前端发送后，后端有API可以接收消息。软件包、软件包、文件。
+   1. 只能修改自己用户下的好友，所以需要核对用户信息
+```py
+#/chat/chat.py
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+
+from web.models.friend import Friend
+
+class MessageChatView(APIView):
+    permission_classes = [IsAuthenticated]
+    def post(self, request):
+        friend_id = request.data['friend_id']
+        message = request.data['message'].strip()
+        if not message:
+            return Response({
+                'result': '消息不得为空',
+            })
+        friends = Friend.objects.filter(pk=friend_id, me__user=request.user)
+        if not friends.exists():
+            return Response({
+                'result': '好友不存在',
+            })
+```
+  2. 为了维护代码，将LangGraph逻辑存放在`backend/web/views/friend/message/chat/graph.py`
+     1. LangGraph用图来封装逻辑
+     2. ChatOpenAI#连接大模型
+     3. `langgraph`数据类型：
+```py
+class AgentState(TypedDict):
+    messages: Annotated[Sequence[BaseMessage], add_messages]
+```
+```py
+import os
+from typing import TypedDict, Annotated, Sequence
+
+from langchain_core.messages import BaseMessage
+from langchain_openai import ChatOpenAI
+from langgraph.constants import START, END
+from langgraph.graph import add_messages, StateGraph
+
+
+class ChatGraph: #用于封装函数逻辑
+    @staticmethod
+    def create_app():
+        llm = ChatOpenAI( #连接大模型
+            models='deepseek-v3.2',
+            openai_api_key=os.getenv('API_KEY'), #gentenv：获取环境变量
+            openai_api_base=os.getenv('API_BASE') #访问的URL
+        )
+
+        class AgentState(TypedDict): #数据类型
+            messages: Annotated[Sequence[BaseMessage], add_messages] #本质为条件更丰富的字典，add_message为它的合并方式，将agent的结果追加在sequence末尾
+
+        def model_call(state: AgentState) -> AgentState:
+            res = llm.invoke(state['messages']) #存储返回的model
+            return {'messages': [res]} #将res追加到message的末尾
+
+        graph = StateGraph(AgentState) #StateGraph创建状态图，()内为维护的状态类型
+        graph.add_node('agent',model_call()) #定义自己加入的agent节点,(名字,节点函数)
+
+        #加上连接的两条边 staet ----> agent ----> end
+        graph.add_edge(START,'agent')
+        graph.add_edge('agent', END)
+        
+        return graph.compiled()
+```
+  3. 封装完LangGraph后,可以在`AIFriends/backend/web/views/friend/message/chat/chat.py`下调用：
+```py
+from langchain_core.messages import HumanMessage
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+
+from web.models.friend import Friend
+from web.views.friend.message.chat.graph import ChatGraph
+
+
+class MessageChatView(APIView):
+    permission_classes = [IsAuthenticated]
+    def post(self, request):
+        friend_id = request.data['friend_id']
+        message = request.data['message'].strip()
+        if not message:
+            return Response({
+                'result': '消息不得为空',
+            })
+        friends = Friend.objects.filter(pk=friend_id, me__user=request.user)
+        if not friends.exists():
+            return Response({
+                'result': '好友不存在',
+            })
+
+        # 对接大模型
+        friend = friends.first()
+        app = ChatGraph.create_app()
+
+        #构造输入,构造刚刚定义的字典
+        inputs ={
+            'messages': [HumanMessage(message)] #和构造的函数内变量名对应，封装传入的消息
+        }
+
+        res = app.invoke(inputs) #调用计算流程
+        print(res['messages'][-1].content) #会返回一个
+        return Response({
+            'result':'success',
+        })
+```
+  4. 添加路由`backend/web/urls.py`：`path('api/friend/message/chat',MessageChatView.as_view()),`
