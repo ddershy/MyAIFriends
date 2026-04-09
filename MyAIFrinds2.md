@@ -1615,8 +1615,6 @@ async function showModal(){
           ref="input-ref"
           :friendID="friend.id"
       />`
-
-此时在调试时我一直在报403的错误，最终的解决方法是将前端url最后加了'/'。
 ```py
 <!--frontend/src/components/character/chat_field/input_field/InputField.vue-->
 
@@ -1642,7 +1640,7 @@ async function handleSend(){
   message.value=''
 
   try { //给后端发送请求
-    const res = await api.post('/api/friend/message/chat/',{ //神啊 为什么这里一定要加/，我当时修改了django版本
+    const res = await api.post('/api/friend/message/chat/',{ 
       friend_id:props.friendID,
       message: content,
     })
@@ -1843,4 +1841,264 @@ class MessageChatView(APIView):
         return Response({
             'result':'success',
         })
+```
+
+3. 定义一个伪渲染器，防止 DRF 报错：
+```py
+class SSERenderer(BaseRenderer):
+    media_type = 'text/event-stream'
+    format = 'txt'
+    def render(self, data, accepted_media_type=None, renderer_context=None):
+        return data
+
+
+class MessageChatView(APIView):
+    permission_classes = [IsAuthenticated]
+    renderer_classes = [SSERenderer]  # 引入渲染器
+    def post(self, request):
+        ...
+```
+4. 返回StreamingHttpResponse
+```
+response = StreamingHttpResponse(event_stream(), content_type="text/event-stream") #返回StreamingHttpResponse
+        response['Cache-Control'] = 'no-cache'
+        return response
+```
+本节代码汇总：
+```
+# backend/web/views/friend/message/chat/chat.py
+import json
+
+from django.http import StreamingHttpResponse
+from langchain_core.messages import HumanMessage, BaseMessageChunk
+from rest_framework.renderers import BaseRenderer
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+
+from web.models.friend import Friend
+from web.views.friend.message.chat.graph import ChatGraph
+
+class SSERenderer(BaseRenderer): #渲染器
+    media_type = 'text/event-stream'
+    format = 'txt'
+    def render(self,data, accepted_media_type=None, renderer_context=None):
+        return data
+
+class MessageChatView(APIView):
+    permission_classes = [IsAuthenticated]
+    renderer_classes = [SSERenderer] #引入渲染器
+    def post(self, request):
+        friend_id = request.data['friend_id']
+        message = request.data['message'].strip()
+        if not message:
+            return Response({
+                'result': '消息不得为空',
+            })
+        friends = Friend.objects.filter(pk=friend_id, me__user=request.user)
+        if not friends.exists():
+            return Response({
+                'result': '好友不存在',
+            })
+
+        # 对接大模型
+        friend = friends.first()
+        app = ChatGraph.create_app()
+
+        #构造输入,构造刚刚定义的字典
+        inputs ={
+            'messages': [HumanMessage(message)] #和构造的函数内变量名对应，封装传入的消息
+        }
+
+        # res = app.invoke(inputs) #调用计算流程  非流式回复
+        # print(res['messages'][-1].content) #会返回一个
+
+        # 流式回复： yield：生成器，每执行一次，会往下进行一个yield之前的内容；
+            #生成器定义
+        def event_stream():
+            full_usage ={} #存储消耗量
+            for msg,metadata in app.stream(inputs,stream_mode="messages"):
+                if isinstance(msg,BaseMessageChunk): #消息是否是本次片段
+                    if msg.content:#判断是否有消息
+                        yield f"data:{json.dumps({'content':msg.content},ensure_ascii=False)}\n\n" #ensure_ascii=False 确保返回为unicode 看中文
+                    if hasattr(msg,'usage_metadata') and msg.usage_metadata: #存储usage信息
+                        full_usage = msg.usage_metadata
+            yield 'data: [DONE]\n\n' #结束格式 data: [DONE]\n\n
+            print(full_usage)
+
+        response = StreamingHttpResponse(event_stream(), content_type="text/event-stream") #返回StreamingHttpResponse
+        response['Cache-Control'] = 'no-cache'
+        return response
+```
+
+#### 3.2 改造前端
+1. 为了发送SSE请求，安装`fetch-event-source`：`npm install @microsoft/fetch-event-source`
+2. 将如下代码添加到A`IFriends/frontend/src/js/http/streamApi.js`。
+```js
+/*
+frontend/src/js/http/streamApi.js
+ * 功能：在每个请求头里自动添加`access token`。
+ * 然后拦截请求结果，如果返回结果是身份认证失败（401），
+ * 则说明`access_token`过期了，那么调用api刷新token`，
+ * 如果刷新成功，则重新发送原请求。
+*/
+
+import { fetchEventSource } from '@microsoft/fetch-event-source';
+import { useUserStore } from "@/stores/user.js";
+import api from "./api.js";
+
+const BASE_URL = 'http://127.0.0.1:8000'
+
+/**
+ * 通用的流式请求工具
+ * @param {string} url 请求地址
+ * @param {object} options 配置项 (method, body, onmessage, onerror等)
+ */
+export default async function streamApi(url, options = {}) {
+    const userStore = useUserStore();
+
+    const startFetch = async () => {
+        return await fetchEventSource(BASE_URL + url, {
+            method: options.method || 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${userStore.accessToken}`,
+                ...options.headers,
+            },
+            body: JSON.stringify(options.body || {}),
+
+            openWhenHidden: true,  // 允许后台运行，防止浏览器因隐藏页面而强制关闭它 处理报错
+            async onopen(response) {
+                // 1. 处理 401 Token 过期
+                if (response.status === 401) {
+                    try {
+                        // 触发 api.js 中的 Axios 拦截器进行静默刷新
+                        await api.post('/api/user/account/refresh_token/', {});
+                        // 抛出特定错误触发下面的 onerror 重试逻辑
+                        throw new Error("TOKEN_REFRESHED");
+                    } catch (err) {
+                        // 如果刷新失败（refresh_token也过期），直接报错由上层处理
+                        throw err;
+                    }
+                }
+
+                if (!response.ok || !response.headers.get('content-type')?.includes('text/event-stream')) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.detail || `请求失败: ${response.status}`);
+                }
+            },
+
+            onmessage(msg) {
+                if (msg.data === '[DONE]') {
+                    if (options.onmessage) options.onmessage('', true);
+                    return
+                }
+                try {
+                    const json = JSON.parse(msg.data);
+                    if (options.onmessage) options.onmessage(json, false);
+                } catch (e) {
+                    console.error("流解析失败:", e);
+                }
+            },
+
+            onerror(err) {
+                // 2. 捕获重试信号并递归
+                if (err.message === "TOKEN_REFRESHED") {
+                    return startFetch();
+                }
+
+                // 其他错误则按用户定义的 onerror 处理
+                if (options.onerror) {
+                    options.onerror(err);
+                }
+                throw err; // 停止自动重试
+            },
+
+            onclose: options.onclose,
+        });
+    };
+
+    return await startFetch();
+}
+```
+3. 修改InputField.vue。
+   1. let  isProcessing = false //防止用户重复发消息
+   2. 修改消息流式接收与输出，并单独判断是否输出结束与错误
+```py
+<!--frontend/src/components/character/chat_field/input_field/InputField.vue-->
+
+<script setup>
+
+import SendIcon from "@/components/character/icons/SendIcon.vue";
+import MicIcon from "@/components/character/icons/MicIcon.vue";
+import {ref, useTemplateRef} from "vue";
+import streamApi from "@/js/http/streamApi.js";
+import flattenColorPalette from "tailwindcss/lib/util/flattenColorPalette";
+
+const props = defineProps(['friendID'])//接收来自母组件的friendID
+const inputRef = useTemplateRef('input-ref') //定义一个输入框
+const message = ref('') //获取聊天框内内容
+let  isProcessing = false //防止用户重复发消息
+
+function focus(){
+  inputRef.value.focus()
+}
+
+async function handleSend(){
+  if(isProcessing) return
+  isProcessing = true
+
+  const content = message.value.trim() //先取出内容
+  if(!content) return
+  message.value=''
+
+  try{
+    await  streamApi('/api/friend/message/chat/',{
+      body:{
+        friend_id:props.friendID,
+        message:content,
+      },
+      onmessage(data,isDone) {//用于接收消息
+        if(isDone){
+          isProcessing = false
+        }else if(data.content){
+          console.log(data.content)//文本内有消息没输出完则全部输出
+        }
+      },
+      onerror(err){//用于接收错误
+        isProcessing = false
+      },
+    }) //发送流式请求
+  }catch(err){
+    console.log(err)
+    isProcessing = false //错误表示信息发送完毕
+  }
+}
+
+defineExpose({ //当母组件一调用聊天框函数，这个逻辑应当被执行。因为需要在母组件调用子组件，所以需要将这个部分暴漏出去
+  focus,
+})
+</script>
+
+<template>
+  <form @submit.prevent="handleSend" class="absolute bottom-4 left-2 h-12 w-86 flex items-center">
+    <input
+        ref="inputRef"
+        v-model="message"
+        class="input bg-black/30  backdrop-blur-smtext-white text-white w-full h-full rounded-2xl"
+        type="text"
+        placeholder="文本输入..."
+    >
+    <div @click="handleSend" class="absolute right-2 w-8 h-8 flex justify-center items-center cursor-pointer">
+      <SendIcon/>
+    </div>
+    <div class="absolute right-10 w-8 h-8 flex justify-center items-center cursor-pointer">
+      <MicIcon/>
+    </div>
+  </form>
+</template>
+
+<style scoped>
+
+</style>
 ```

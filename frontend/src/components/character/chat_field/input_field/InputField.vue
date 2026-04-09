@@ -9,7 +9,8 @@ import streamApi from "@/js/http/streamApi.js";
 import flattenColorPalette from "tailwindcss/lib/util/flattenColorPalette";
 
 const props = defineProps(['friendID'])//接收来自母组件的friendID
-const inputRef = useTemplateRef('input-ref') //定义一个输入框
+const emit = defineEmits(['pushBackMessage','addToLastMessage']) //接收函数
+const inputRef = useTemplateRef('inputRef') //定义一个输入框
 const message = ref('') //获取聊天框内内容
 let  isProcessing = false //防止用户重复发消息
 
@@ -25,6 +26,10 @@ async function handleSend(){
   if(!content) return
   message.value=''
 
+  //每次一回车会存储两次变化：1. 用户自己的消息;2. ai回复的消息
+  emit('pushBackMessage',{role:'user',content:content,id:crypto.randomUUID()})//随机字符串
+  emit('pushBackMessage',{role:'ai',content:'',id:crypto.randomUUID()})
+
   try{
     await  streamApi('/api/friend/message/chat/',{
       body:{
@@ -35,7 +40,8 @@ async function handleSend(){
         if(isDone){
           isProcessing = false
         }else if(data.content){
-          console.log(data.content)//文本内有消息没输出完则全部输出
+          //每次流式收到一条消息，就将这条消息流式补充到最后一条消息上
+          emit('addToLastMessage',data.content)
         }
       },
       onerror(err){//用于接收错误
