@@ -16,7 +16,7 @@ class GetHistoryView(APIView):
             queryset =  Message.objects.filter(friend_id=friend_id,friend__me__user=request.user) #只能拉取自己好友的消息，不能看别人的聊天记录
             if last_message_id > 0:#不是第一次加载
                 queryset = queryset.filter(pk__lt=last_message_id) #lt->小于last_message_id的消息 lte<= gt> gte>=,django数据库判断
-            message_raw = queryset.order_by('-id')[:1] #倒序排列信息，新的在前
+            message_raw = queryset.order_by('-id')[:10] #倒序排列信息，新的在前
             messages = []
             for m in message_raw:
                 messages.append({
