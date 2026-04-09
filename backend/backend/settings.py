@@ -32,6 +32,7 @@ INSTALLED_APPS = [
     'corsheaders',
 ]
 
+
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
@@ -127,6 +128,15 @@ REST_FRAMEWORK = {
     ),
 }
 
+# REST_FRAMEWORK = {
+#     'DEFAULT_AUTHENTICATION_CLASSES': (
+#         # 只要这一行，确保没有 rest_framework.authentication.SessionAuthentication
+#         'rest_framework_simplejwt.authentication.JWTAuthentication',
+#     ),
+#     'DEFAULT_PERMISSION_CLASSES': [
+#         'rest_framework.permissions.IsAuthenticated',
+#     ],
+# }
 # 使用JWT认证
 # SimpleJWT配置
 SIMPLE_JWT = {
@@ -145,3 +155,11 @@ CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
 ]
+CSRF_TRUSTED_ORIGINS = [
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+]
+# 指定默认的主键字段类型为 BigAutoField
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+

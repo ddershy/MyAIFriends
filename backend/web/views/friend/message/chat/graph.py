@@ -1,3 +1,5 @@
+# backend/web/views/friend/message/chat/graph.py
+
 import os
 from typing import TypedDict, Annotated, Sequence
 
@@ -11,9 +13,15 @@ class ChatGraph: #用于封装函数逻辑
     @staticmethod
     def create_app():
         llm = ChatOpenAI( #连接大模型
-            models='deepseek-v3.2',
+            model='deepseek-v3.2',
             openai_api_key=os.getenv('API_KEY'), #gentenv：获取环境变量
-            openai_api_base=os.getenv('API_BASE') #访问的URL
+            openai_api_base=os.getenv('API_BASE'),#访问的URL
+            streaming = True, # 流式输出
+            model_kwargs = {
+                "stream_options": {
+                    "include_usage": True,  # 输出token消耗数量
+                }
+            }
         )
 
         class AgentState(TypedDict): #数据类型
@@ -24,10 +32,10 @@ class ChatGraph: #用于封装函数逻辑
             return {'messages': [res]} #将res追加到message的末尾
 
         graph = StateGraph(AgentState) #StateGraph创建状态图，()内为维护的状态类型
-        graph.add_node('agent',model_call()) #定义自己加入的agent节点,(名字,节点函数)
+        graph.add_node('agent',model_call) #定义自己加入的agent节点,(名字,节点函数)
 
         #加上连接的两条边 staet ----> agent ----> end
         graph.add_edge(START,'agent')
         graph.add_edge('agent', END)
 
-        return graph.compiled()
+        return graph.compile()

@@ -1494,7 +1494,7 @@ class ChatGraph: #用于封装函数逻辑
     @staticmethod
     def create_app():
         llm = ChatOpenAI( #连接大模型
-            models='deepseek-v3.2',
+            model='deepseek-v3.2',
             openai_api_key=os.getenv('API_KEY'), #gentenv：获取环境变量
             openai_api_base=os.getenv('API_BASE') #访问的URL
         )
@@ -1507,13 +1507,13 @@ class ChatGraph: #用于封装函数逻辑
             return {'messages': [res]} #将res追加到message的末尾
 
         graph = StateGraph(AgentState) #StateGraph创建状态图，()内为维护的状态类型
-        graph.add_node('agent',model_call()) #定义自己加入的agent节点,(名字,节点函数)
+        graph.add_node('agent',model_call) #定义自己加入的agent节点,(名字,节点函数)
 
         #加上连接的两条边 staet ----> agent ----> end
         graph.add_edge(START,'agent')
         graph.add_edge('agent', END)
         
-        return graph.compiled()
+        return graph.compile()
 ```
   3. 封装完LangGraph后,可以在`AIFriends/backend/web/views/friend/message/chat/chat.py`下调用：
 ```py
@@ -1557,3 +1557,290 @@ class MessageChatView(APIView):
         })
 ```
   4. 添加路由`backend/web/urls.py`：`path('api/friend/message/chat',MessageChatView.as_view()),`
+
+### 2. 实现聊天前端
+`frontend/src/components/character/chat_field/input_field/InputField.vue`
+1. 打开聊天页面后，自动聚焦输入框。
+   1. 定义一个输入框和相关引用 
+   2. 将这个函数逻辑暴露出去
+```js
+const inputRef = useTemplateRef('input-ref') //定义一个输入框
+
+function focus(){
+  inputRef.value.focus()
+}
+
+defineExpose({ //当母组件一调用聊天框函数，这个逻辑应当被执行。因为需要在母组件调用子组件，所以需要将这个部分暴漏出去
+  focus,
+})
+```
+   3. 在母组件中添加调用逻辑`frontend/src/components/character/chat_field/ChatField.vue`
+```js
+const inputRef = useTemplateRef('input-ref') //接收来自子组件的函数
+
+async function showModal(){
+  modalRef.value.showModal()
+
+  await nextTick() //等待元素渲染
+  inputRef.value.focus()
+}
+.....
+      <InputField ref="input-ref"/>
+```
+
+
+2. 对接并调试后端api `frontend/src/components/character/chat_field/input_field/InputField.vue`
+   1. 发送事件，当点击按钮/回车的时候可以调用这个函数，故需要在按钮上绑定函数逻辑以及将div改成表单，且因为在按回车时不许刷新页面，所以为.prevent。添加绑定逻辑
+```py
+<template>
+  <form @submit.prevent="handelSend" class="absolute bottom-4 left-2 h-12 w-86 flex items-center">
+    <input
+        ref="input-ref"
+        class="input bg-black/30  backdrop-blur-smtext-white text-white w-full h-full rounded-2xl"
+        type="text"
+        placeholder="文本输入..."
+    >
+    <div @click="handelSend" class="absolute right-2 w-8 h-8 flex justify-center items-center cursor-pointer">
+      <SendIcon/>
+    </div>
+    <div class="absolute right-10 w-8 h-8 flex justify-center items-center cursor-pointer">
+      <MicIcon/>
+    </div>
+  </form>
+</template>
+``` 
+
+  2. 添加`handleSend`函数逻辑，先添加响应式变量message获取到l聊天框内的内容；获取friend.id，需要在母组件（chatfiled）中添加逻辑`<InputField 
+          v-if="friend"
+          ref="input-ref"
+          :friendID="friend.id"
+      />`
+
+此时在调试时我一直在报403的错误，最终的解决方法是将前端url最后加了'/'。
+```py
+<!--frontend/src/components/character/chat_field/input_field/InputField.vue-->
+
+<script setup>
+
+import SendIcon from "@/components/character/icons/SendIcon.vue";
+import MicIcon from "@/components/character/icons/MicIcon.vue";
+import {ref, useTemplateRef} from "vue";
+import api from "@/js/http/api.js";
+
+const props = defineProps(['friendID'])//接收来自母组件的friendID
+const inputRef = useTemplateRef('input-ref') //定义一个输入框
+const message = ref('') //获取聊天框内内容
+
+
+function focus(){
+  inputRef.value.focus()
+}
+
+async function handleSend(){
+  const content = message.value.trim() //先取出内容
+  if(!content) return
+  message.value=''
+
+  try { //给后端发送请求
+    const res = await api.post('/api/friend/message/chat/',{ //神啊 为什么这里一定要加/，我当时修改了django版本
+      friend_id:props.friendID,
+      message: content,
+    })
+    console.log(res.data)
+  }catch (err){
+    console.log(err)
+  }
+}
+
+defineExpose({ //当母组件一调用聊天框函数，这个逻辑应当被执行。因为需要在母组件调用子组件，所以需要将这个部分暴漏出去
+  focus,
+})
+</script>
+
+<template>
+  <form @submit.prevent="handleSend" class="absolute bottom-4 left-2 h-12 w-86 flex items-center">
+    <input
+        ref="inputRef"
+        v-model="message"
+        class="input bg-black/30  backdrop-blur-smtext-white text-white w-full h-full rounded-2xl"
+        type="text"
+        placeholder="文本输入..."
+    >
+    <div @click="handleSend" class="absolute right-2 w-8 h-8 flex justify-center items-center cursor-pointer">
+      <SendIcon/>
+    </div>
+    <div class="absolute right-10 w-8 h-8 flex justify-center items-center cursor-pointer">
+      <MicIcon/>
+    </div>
+  </form>
+</template>
+
+<style scoped>
+
+</style>
+```
+
+```py
+<!--frontend/src/components/character/chat_field/ChatField.vue-->
+<script setup>
+import {computed, nextTick, useTemplateRef} from "vue";
+import InputField from "@/components/character/chat_field/input_field/InputField.vue";
+import CharacterPhotoField from "@/components/character/chat_field/character_photo_field/CharacterPhotoField.vue";
+
+const props = defineProps(['friend'])
+const modalRef= useTemplateRef('modal-ref')
+const inputRef = useTemplateRef('input-ref') //接收来自子组件的函数
+
+async function showModal(){
+  modalRef.value.showModal()
+
+  await nextTick() //等待元素渲染
+  inputRef.value.focus()
+}
+
+const modalStyle = computed(() => {//将模态框背景图片设置成聊天背景：
+  if (props.friend) {
+    return {
+      backgroundImage: `url(${props.friend.character.background_image})`,
+      backgroundSize: 'cover', //大小覆盖
+      backgroundPosition: 'center',
+      backgroundRepeat: 'no-repeat',
+    }
+  } else {
+    return {}
+  }
+})
+
+defineExpose({
+  showModal,
+})
+</script>
+
+<template>
+  <dialog ref="modal-ref" class="modal">
+    <div class="modal-box w-90 h-150" :style="modalStyle">
+      <button @click="modalRef.close()" class="btn btn-sm btn-circle btn-ghost bg-transparent absolute top-1 right-1">✕</button>
+      <InputField
+          v-if="friend"
+          ref="input-ref"
+          :friendID="friend.id"
+      />
+      <CharacterPhotoField v-if="friend" :character="friend.character"/>
+    </div>
+  </dialog>
+</template>
+
+<style scoped>
+
+</style>
+```
+
+### 3. 实现流式回复
+#### 3.1 改造后端
+
+1. 修改`graph.py`,在ChatOpenAI中添加参数
+```py
+# backend/web/views/friend/message/chat/graph.py
+
+import os
+from typing import TypedDict, Annotated, Sequence
+
+from langchain_core.messages import BaseMessage
+from langchain_openai import ChatOpenAI
+from langgraph.constants import START, END
+from langgraph.graph import add_messages, StateGraph
+
+
+class ChatGraph: #用于封装函数逻辑
+    @staticmethod
+    def create_app():
+        llm = ChatOpenAI( #连接大模型
+            model='deepseek-v3.2',
+            openai_api_key=os.getenv('API_KEY'), #gentenv：获取环境变量
+            openai_api_base=os.getenv('API_BASE'),#访问的URL
+            streaming = True, # 流式输出
+            model_kwargs = {
+                "stream_options": {
+                    "include_usage": True,  # 输出token消耗数量
+                }
+            }
+        )
+
+        class AgentState(TypedDict): #数据类型
+            messages: Annotated[Sequence[BaseMessage], add_messages] #本质为条件更丰富的字典，add_message为它的合并方式，将agent的结果追加在sequence末尾
+
+        def model_call(state: AgentState) -> AgentState:
+            res = llm.invoke(state['messages']) #存储返回的model
+            return {'messages': [res]} #将res追加到message的末尾
+
+        graph = StateGraph(AgentState) #StateGraph创建状态图，()内为维护的状态类型
+        graph.add_node('agent',model_call) #定义自己加入的agent节点,(名字,节点函数)
+
+        #加上连接的两条边 staet ----> agent ----> end
+        graph.add_edge(START,'agent')
+        graph.add_edge('agent', END)
+
+        return graph.compile()
+```
+2. 实现`event_stream`生成器,未来消息从后端传到前端，由于http不是流式返回；需要将请求从SSE,请求为单次，但返回是流式；websocket 客户端和服务器端谁先发都行。大模型常用SSE。
+```py
+# backend/web/views/friend/message/chat/chat.py
+import json
+
+from langchain_core.messages import HumanMessage, BaseMessageChunk
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+
+from web.models.friend import Friend
+from web.views.friend.message.chat.graph import ChatGraph
+
+
+class MessageChatView(APIView):
+    permission_classes = [IsAuthenticated]
+    def post(self, request):
+        friend_id = request.data['friend_id']
+        message = request.data['message'].strip()
+        if not message:
+            return Response({
+                'result': '消息不得为空',
+            })
+        friends = Friend.objects.filter(pk=friend_id, me__user=request.user)
+        if not friends.exists():
+            return Response({
+                'result': '好友不存在',
+            })
+
+        # 对接大模型
+        friend = friends.first()
+        app = ChatGraph.create_app()
+
+        #构造输入,构造刚刚定义的字典
+        inputs ={
+            'messages': [HumanMessage(message)] #和构造的函数内变量名对应，封装传入的消息
+        }
+
+        # res = app.invoke(inputs) #调用计算流程  非流式回复
+        # print(res['messages'][-1].content) #会返回一个
+
+        # 流式回复： yield：生成器，每执行一次，会往下进行一个yield之前的内容；
+            #生成器定义
+        def event_stream():
+            full_usage ={} #存储消耗量
+            for msg,metadata in app.stream(inputs,stream_mode="messages"):
+                if isinstance(msg,BaseMessageChunk): #消息是否是本次片段
+                    if msg.content:#判断是否有消息
+                        yield f"data:{json.dumps({'content':msg.content},ensure_ascii=False)}\n\n" #ensure_ascii=False 确保返回为unicode 看中文
+                    if hasattr(msg,'usage_metadata') and msg.usage_metadata: #存储usage信息
+                        full_usage = msg.usage_metadata
+            yield 'data: [DONE]\n\n' #结束格式 data: [DONE]\n\n
+            print(full_usage)
+
+            #生成器执行
+        for data in event_stream():
+            print(data)
+
+        return Response({
+            'result':'success',
+        })
+```

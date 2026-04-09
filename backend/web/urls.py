@@ -1,3 +1,4 @@
+# backend/web/urls.py
 from django.urls import path, re_path
 
 from web.views.account.get_user_info import GetUserInfoView
@@ -34,7 +35,7 @@ urlpatterns = [
     path('api/friend/get_or_create/',GetOrCreateFriendView.as_view()),
     path('api/friend/remove/',RemoveFriendView.as_view()),
     path('api/friend/get_list/',GetListFriendsView.as_view()),
-    path('api/friend/message/chat',MessageChatView.as_view()),
+    path('api/friend/message/chat/',MessageChatView.as_view()),
     path('',index),
     re_path(r'^(?!media/|static/|assets/).*$', index)
 ]
