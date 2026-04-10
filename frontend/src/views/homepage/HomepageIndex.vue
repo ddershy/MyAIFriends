@@ -1,3 +1,4 @@
+<!--frontend/src/views/homepage/HomepageIndex.vue-->
 <script setup>
 import {nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch} from "vue";
 import api from "@/js/http/api.js";

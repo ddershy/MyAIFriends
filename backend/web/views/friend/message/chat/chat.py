@@ -2,13 +2,13 @@
 import json
 
 from django.http import StreamingHttpResponse
-from langchain_core.messages import HumanMessage, BaseMessageChunk
+from langchain_core.messages import HumanMessage, BaseMessageChunk, SystemMessage, AIMessage
 from rest_framework.renderers import BaseRenderer
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 
-from web.models.friend import Friend, Message
+from web.models.friend import Friend, Message, SystemPrompt
 from web.views.friend.message.chat.graph import ChatGraph
 
 class SSERenderer(BaseRenderer): #渲染器
@@ -16,6 +16,24 @@ class SSERenderer(BaseRenderer): #渲染器
     format = 'txt'
     def render(self,data, accepted_media_type=None, renderer_context=None):
         return data
+
+def add_system_prompt(state,friend):#添加系统提示词
+    msgs = state['messages'] #读取之前已有的信息
+    system_prompts = SystemPrompt.objects.filter(title="回复").order_by('order_number') #将回复模块按照order_number排序
+    prompt= ''
+    for sp in system_prompts:
+        prompt += sp.prompts #连接起来
+    prompt += f'\n【角色性格】\n{friend.character.profile}\n'
+    return {'messages':[SystemMessage(prompt)] + msgs} #手动追加
+
+def add_recent_message(state,friend):#近期对话
+    msgs = state['messages']
+    message_raw = list(Message.objects.filter(friend=friend).order_by('-id')[:10])#近十轮对话,因为是从新到旧排列，需要翻转对话顺序，用list包裹
+    messages = []
+    for m in message_raw:
+        messages.append(HumanMessage(m.user_message))
+        messages.append(AIMessage(m.output))
+    return {'messages':msgs[:1] + messages + msgs[-1:]} #十轮对话加在系统提示词和用户对话之间
 
 class MessageChatView(APIView):
     permission_classes = [IsAuthenticated]
@@ -41,6 +59,8 @@ class MessageChatView(APIView):
         inputs ={
             'messages': [HumanMessage(message)] #和构造的函数内变量名对应，封装传入的消息
         }
+        inputs = add_system_prompt(inputs,friend) #追加系统信息
+        inputs = add_recent_message(inputs,friend)
 
         # res = app.invoke(inputs) #调用计算流程  非流式回复
         # print(res['messages'][-1].content) #会返回一个
