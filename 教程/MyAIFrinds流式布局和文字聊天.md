@@ -3150,5 +3150,62 @@ def insert_documents():
     print(f"已插入 {vector_db._table.count_rows()} 行数据")
 ```
 #### 8.4 增加工具节点,查询相似段落
-实现查询知识库的`tool`,`backend/web/views/friend/message/chat/graph.py`
+实现查询知识库的`tool`,更新`backend/web/views/friend/message/chat/graph.py`
+```py
+        @tool
+        def search_knowledge_base(query: str) -> str:
+            """当用户查询阿里云百炼平台的相关信息时，调用此函数，输入为要查询的问题，输出为查询结果"""
+            db = lancedb.connect('./web/documents/lancedb_storage') #连接数据库
+            embeddings = CustomEmbeddings()
+            vector_db = LanceDB(
+                connection=db,
+                embedding = embeddings,
+                table_name= 'my_knowledge_base',
+            )
+            docs = vector_db.similarity_search(query,k=3)#查询最相近的三个文档
+            context = '\n\n'.join([f'内容片段： {i+1}\n{doc.page_content}' for i,doc in enumerate(docs)])
+            return f'从知识库中找到以下相关信息：\n\n{context}\n'
 
+        tools = [get_time,search_knowledge_base] #工具列表
+```
+
+### 9. 打包代码
+1. 删除调试信息。
+2. 前端Message组件上加上break-all属性，否则当英文单词太长时，会超出聊天区域的范围。
+3. 将前端代码打包到后端。
+```html
+<!--frontend/src/components/character/chat_field/chat_history/message/Message.vue-->
+
+<script setup>
+import {useUserStore} from "@/stores/user.js";
+
+defineProps(['message','character'])//接收来自ChatHistory的参数
+
+const user = useUserStore()//用户头像
+</script>
+
+<template>
+  <div v-if="message.content">
+    <div v-if="message.role === 'ai'" class="chat chat-start" >
+      <div class="chat-image avatar">
+        <div class="w-10 rounded-full">
+          <img :src="character.photo" alt="">
+        </div>
+      </div>
+      <div class="chat-bubble whitespace-pre-wrap break-all">{{ message.content }}</div>
+    </div>
+    <div v-else class="chat chat-end ">
+      <div class="chat-image avatar ">
+        <div class="w-10 rounded-full ">
+          <img :src="user.photo" alt="">
+        </div>
+      </div>
+      <div class="chat-bubble chat-bubble-success whitespace-pre-wrap break-all">{{ message.content }}</div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+
+</style>
+```

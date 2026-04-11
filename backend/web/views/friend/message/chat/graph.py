@@ -1,7 +1,7 @@
 # backend/web/views/friend/message/chat/graph.py
 
 import os
-from pprint import pprint
+# from pprint import pprint
 from typing import TypedDict, Annotated, Sequence
 
 import lancedb
@@ -57,7 +57,7 @@ class ChatGraph: #用于封装函数逻辑
             messages: Annotated[Sequence[BaseMessage], add_messages] #本质为条件更丰富的字典，add_message为它的合并方式，将agent的结果追加在sequence末尾
 
         def model_call(state: AgentState) -> AgentState:
-            pprint(state['messages'])
+            # pprint(state['messages'])
             res = llm.invoke(state['messages']) #存储返回的model
             return {'messages': [res]} #将res追加到message的末尾
 
