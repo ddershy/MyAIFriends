@@ -2102,3 +2102,803 @@ defineExpose({ //当母组件一调用聊天框函数，这个逻辑应当被执
 
 </style>
 ```
+
+### 4. 实现聊天记录的创建和加载
+#### 4.1 实现后端
+##### 4.1.1 存储大模型回复
+大模型回复结束后自动创建`Message`，记得截断`user_message`、`input、output`等信息。
+backend/web/views/friend/message/chat/chat.py，中在大模型结束回复的时候存储下大模型的回复，`full_output += msg.content`
+```py
+# backend/web/views/friend/message/chat/chat.py
+import json
+
+from django.http import StreamingHttpResponse
+from langchain_core.messages import HumanMessage, BaseMessageChunk
+from rest_framework.renderers import BaseRenderer
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+
+from web.models.friend import Friend, Message
+from web.views.friend.message.chat.graph import ChatGraph
+
+class SSERenderer(BaseRenderer): #渲染器
+    media_type = 'text/event-stream'
+    format = 'txt'
+    def render(self,data, accepted_media_type=None, renderer_context=None):
+        return data
+
+class MessageChatView(APIView):
+    permission_classes = [IsAuthenticated]
+    renderer_classes = [SSERenderer] #引入渲染器
+    def post(self, request):
+        friend_id = request.data['friend_id']
+        message = request.data['message'].strip()
+        if not message:
+            return Response({
+                'result': '消息不得为空',
+            })
+        friends = Friend.objects.filter(pk=friend_id, me__user=request.user)
+        if not friends.exists():
+            return Response({
+                'result': '好友不存在',
+            })
+
+        # 对接大模型
+        friend = friends.first()
+        app = ChatGraph.create_app()
+
+        #构造输入,构造刚刚定义的字典
+        inputs ={
+            'messages': [HumanMessage(message)] #和构造的函数内变量名对应，封装传入的消息
+        }
+
+        # res = app.invoke(inputs) #调用计算流程  非流式回复
+        # print(res['messages'][-1].content) #会返回一个
+
+        # 流式回复： yield：生成器，每执行一次，会往下进行一个yield之前的内容；
+            #生成器定义
+        def event_stream():
+            full_output = '' #存储大模型的回复
+            full_usage ={} #存储消耗量
+            for msg,metadata in app.stream(inputs,stream_mode="messages"):
+                if isinstance(msg,BaseMessageChunk): #消息是否是本次片段
+                    if msg.content:#判断是否有消息
+                        full_output += msg.content
+                        yield f"data:{json.dumps({'content':msg.content},ensure_ascii=False)}\n\n" #ensure_ascii=False 确保返回为unicode 看中文
+                    if hasattr(msg,'usage_metadata') and msg.usage_metadata: #存储usage信息
+                        full_usage = msg.usage_metadata
+            yield 'data: [DONE]\n\n' #结束格式 data: [DONE]\n\n
+            input_tokens = full_usage.get('input_tokens',0)#存储输入的token
+            output_tokens = full_usage.get('output_tokens',0)
+            total_tokens = full_usage.get('total_tokens',0) #根据后台的格式获取的
+            Message.objects.create(
+                friend=friend,
+                user_message=message,
+                input = json.dumps(
+                    [m.model_dump() for m in inputs['messages']],
+                    ensure_ascii=False,#保证输出的是中午而不是unicode
+                )[:10000],#阶段，长度和web/models/friend.py Message中定义的一致
+                output = full_output[:500],
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                total_tokens=total_tokens,
+            )
+
+        response = StreamingHttpResponse(event_stream(), content_type="text/event-stream") #返回StreamingHttpResponse
+        response['Cache-Control'] = 'no-cache'
+        return response
+```
+##### 4.1.2 实现消息的动态加载
+实现打开一个窗口后，可以加载历史消息；实现`AIFriends/backend/web/views/friend/message/get_history.py`。
+1. 当回复消息时，前端会比后端多一个消息，即AI当前正在回复的消息，当当前消息全部写完的时候，后端才会创建获取到这次回复的全部消息，也就是前后端回复会存在时间差；
+2. 解决方法，不传递items_count，而是传递msg_id，后端会拉取msg_id之前的消息；
+```py
+# backend/web/views/friend/message/get_history.py
+
+from rest_framework.response import Response
+from rest_framework.views import APIView
+from rest_framework.permissions import IsAuthenticated
+
+from web.models.friend import Message
+
+
+class GetHistoryView(APIView):
+    permission_classes = [IsAuthenticated]
+    def get(self, request):
+        try:
+            last_message_id = int(request.query_params.get('last_message_id')) #获取最新一条消息id
+            friend_id = int(request.query_params.get('friend_id'))
+            queryset =  Message.objects.filter(friend_id=friend_id,friend__me__user=request.user) #只能拉取自己好友的消息，不能看别人的聊天记录
+            if last_message_id > 0:#不是第一次加载
+                queryset = queryset.filter(pk__lt=last_message_id) #lt->小于last_message_id的消息 lte<= gt> gte>=,django数据库判断
+            message_raw = queryset.order_by('-id')[:10] #倒序排列信息，新的在前
+            messages = []
+            for m in message_raw:
+                messages.append({
+                    'id': m.id,
+                    'user_message': m.user_message,
+                    'output': m.output,
+                })
+            return Response({
+                'result': 'success',
+                'messages': messages,
+            })
+        except:
+            return Response({
+                'result':'系统异常，请稍后再试',
+            })
+```
+3. 在`MyAIFriends/backend/web/urls.py`中添加路由。`  path('api/friend/message/get_history/',GetHistoryView.as_view()),`
+
+#### 4.2 实现前端
+##### 4.2.1 实现存储历史消息
+
+1. 在`AIfriends/frontend/src/components/character/chat_field/ChatField.vue`中定义`history`，用来存储历史聊天信息。
+   
+```js
+<!--frontend/src/components/character/chat_field/ChatField.vue-->
+const inputRef = useTemplateRef('input-ref') //接收来自子组件的函数
+const history = ref([])//母组件定义，然后传递给子组件input_field，chat_filed，子组件不要直接修改母组件变量，但母组件可以定义一些函数，让子组件调用来修改
+
+//两条history操作
+function handlePushBackMessage(msg){
+  history.value.push(msg) //回车后增加一条消息
+}
+
+function handleAddToLastMessage(delta){
+  history.value.at(-1).content += delta//在最后一条消息上增添内容
+}
+<template>
+...
+      <InputField
+          v-if="friend"
+          ref="input-ref"
+          :friendID="friend.id"
+          @pushBackMessage="handlePushBackMessage" 
+          @addToLastMessage="handleAddToLastMessage"
+```
+
+2. 在InputField.vue的中接收两个事件函数；`const emit = defineEmits(['pushBackMessage','addToLastMessage']) `
+2. 将输入信息和回复信息更新到history中。
+3. 可以用`crypto.randomUUID()`生成消息的唯一ID,用于`Vue v-for key`;防止 UI 渲染错误;支持插入 / 删除 / 流式更新.
+```js
+<!--frontend/src/components/character/chat_field/input_field/InputField.vue-->
+const props = defineProps(['friendID'])//接收来自母组件的friendID
+const emit = defineEmits(['pushBackMessage','addToLastMessage']) //接收函数
+...
+      onmessage(data,isDone) {//用于接收消息
+        if(isDone){
+          isProcessing = false
+        }else if(data.content){
+          //每次流式收到一条消息，就将这条消息流式补充到最后一条消息上
+          emit('addToLastMessage',data.content)
+        }
+</template>
+```
+
+##### 4.2.2 实现消息渲染组件
+1. 在`AIfriends/frontend/src/components/character/chat_field/chat_history/`目录下实现组件：
+   1. `ChatHistory.vue`。
+   2. `message/Message.vue`
+
+2. 在ChatField.vue中引入刚刚定义的ChatHistory组件
+```html
+<template>
+  <dialog ref="modal-ref" class="modal">
+    <div class="modal-box w-90 h-150" :style="modalStyle">
+      <button @click="modalRef.close()" class="btn btn-sm btn-circle btn-ghost bg-transparent absolute top-1 right-1">✕</button>
+      <!--用于写历史聊天记录      -->
+      <ChatHistory 
+          v-if="friend"
+          :history="history"
+          :friendId="friend.id"
+          :character="friend.character"
+      />
+```
+3. 编辑ChatHistory.vue
+```js
+<!--frontend/src/components/character/chat_field/chat_history/ChatHistory.vue-->
+<script setup>
+import Message from "@/components/character/chat_field/chat_history/message/Message.vue";
+
+const props = defineProps(['history','friendId','character']) //来自ChatField的变量
+</script>
+
+<template>
+  <div class = "absolute top-18 left-0 w-90 h-112 overflow-y-scroll no-scrollbar">
+    <Message
+        v-for="message in history"
+        :key="message.id"
+        :message="message"
+        :character="character"
+    />
+  </div>
+</template>
+
+<style scoped>
+/* 隐藏 Chrome, Safari 和 Opera 的滚动条 */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* 隐藏 IE, Edge 和 Firefox 的滚动条 */
+.no-scrollbar {
+  -ms-overflow-style: none; /* IE and Edge */
+  scrollbar-width: none; /* Firefox */
+}
+</style>
+```
+4. 编辑Message.vue组件,聊天气泡要加上whitespace-pre-wrap来保留空格和回车。
+```js
+<script setup>
+import {useUserStore} from "@/stores/user.js";
+
+defineProps(['message','character'])//接收来自ChatHistory的参数
+
+const user = useUserStore()//用户头像
+</script>
+
+<template>
+  <div v-if="message.content">
+    <div v-if="message.role === 'ai'" class="chat chat-start" >
+      <div class="chat-image avatar">
+        <div class="w-10 rounded-full">
+          <img :src="character.photo" alt="">
+        </div>
+      </div>
+      <div class="chat-bubble whitespace-pre-wrap">{{ message.content }}</div>
+    </div>
+    <div v-else class="chat chat-end ">
+      <div class="chat-image avatar ">
+        <div class="w-10 rounded-full ">
+          <img :src="user.photo" alt="">
+        </div>
+      </div>
+      <div class="chat-bubble chat-bubble-success whitespace-pre-wrap">{{ message.content }}</div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+
+</style>
+```
+5. 聊天记录自动滚动到底部，每次添加完消息后触发：`ChatHistory.vue`
+```js
+const scrollRef = useTemplateRef('scroll-ref')
+
+async function scrollToButtom(){
+  await nextTick() //页面渲染完再滚动
+
+  scrollRef.value.scrollTop = scrollRef.value.scrollHeight
+}
+
+defineExpose ({
+  scrollToButtom,
+})
+</script>
+```
+6. 在母组件ChatField中定义引用，即每用户和ai发消息的时候需要将对话框固定在底部
+```js
+<!--frontend/src/components/character/chat_field/ChatField.vue-->
+<script setup>
+import {computed, nextTick, ref, useTemplateRef} from "vue";
+import InputField from "@/components/character/chat_field/input_field/InputField.vue";
+import CharacterPhotoField from "@/components/character/chat_field/character_photo_field/CharacterPhotoField.vue";
+import ChatHistory from "@/components/character/chat_field/chat_history/ChatHistory.vue";
+
+const props = defineProps(['friend'])
+const modalRef= useTemplateRef('modal-ref')
+const inputRef = useTemplateRef('input-ref') //接收来自子组件的函数
+const chatHistoryRef = useTemplateRef('chat-history-ref')
+const history = ref([])//母组件定义，然后传递给子组件input_field，chat_filed，子组件不要直接修改母组件变量，但母组件可以定义一些函数，让子组件调用来修改
+
+async function showModal(){
+  modalRef.value.showModal()
+
+  await nextTick() //等待元素渲染
+  inputRef.value.focus()
+}
+
+const modalStyle = computed(() => {//将模态框背景图片设置成聊天背景：
+  if (props.friend) {
+    return {
+      backgroundImage: `url(${props.friend.character.background_image})`,
+      backgroundSize: 'cover', //大小覆盖
+      backgroundPosition: 'center',
+      backgroundRepeat: 'no-repeat',
+    }
+  } else {
+    return {}
+  }
+})
+
+//两条history操作
+function handlePushBackMessage(msg){
+  history.value.push(msg) //回车后增加一条消息
+  chatHistoryRef.value.scrollToButtom()
+}
+
+function handleAddToLastMessage(delta){
+  history.value.at(-1).content += delta//在最后一条消息上增添内容
+  chatHistoryRef.value.scrollToButtom()
+}
+
+defineExpose({
+  showModal,
+})
+</script>
+
+<template>
+  <dialog ref="modal-ref" class="modal">
+    <div class="modal-box w-90 h-150" :style="modalStyle">
+      <button @click="modalRef.close()" class="btn btn-sm btn-circle btn-ghost bg-transparent absolute top-1 right-1">✕</button>
+      <!--用于写历史聊天记录      -->
+      <ChatHistory
+          ref="chat-history-ref"
+          v-if="friend"
+          :history="history"
+          :friendId="friend.id"
+          :character="friend.character"
+      />
+      <InputField
+          v-if="friend"
+          ref="input-ref"
+          :friendID="friend.id"
+          @pushBackMessage="handlePushBackMessage"
+          @addToLastMessage="handleAddToLastMessage"
+      />
+      <CharacterPhotoField v-if="friend" :character="friend.character"/>
+    </div>
+  </dialog>
+</template>
+
+<style scoped>
+
+</style>
+```
+
+#### 4.3 实现聊天记录的流式加载。
+
+##### 4.3.1 实现自动滚动
+1. 顶部一个哨兵，每次看到哨就加载几条消息
+```html
+<!--frontend/src/components/character/chat_field/chat_history/ChatHistory.vue-->
+   <template>
+  <div ref="scroll-ref" class = "absolute top-18 left-2 w-85 h-112 overflow-y-scroll no-scrollbar">
+    <div ref="sentinel-ref" class="h-2 bg-red-500"></div>
+    <Message
+        v-for="message in history"
+        :key="message.id"
+        :message="message"
+        :character="character"
+    />
+  </div>
+</template>
+```
+1. handlePushFrontMessage，函数unshift
+```js
+<!--frontend/src/components/character/chat_field/ChatField.vue-->
+//往上加消息
+function handlePushFrontMessage(msg){
+  history.value.unshift(msg)
+}
+```
+1. 将函数绑定在事件上
+```html
+<!--frontend/src/components/character/chat_field/ChatField.vue-->
+      <ChatHistory
+          ref="chat-history-ref"
+          v-if="friend"
+          :history="history"
+          :friendId="friend.id"
+          :character="friend.character"
+          @pushFrontMessage="handlePushFrontMessage"
+      />queryset =  Message
+
+```
+4. 把逻辑加载ChatHistory.vue里，实现以一个一个现实；
+5. 每次加载消息后，要更新滚动区域到顶部的距离;
+6. 判断哨兵能否被看到的逻辑要修改，之前是判断是否跟视窗有交集，现在是判断是否跟scrollRef标签有交集：
+```js
+<!--frontend/src/components/character/chat_field/chat_history/ChatHistory.vue-->
+<script setup>
+import Message from "@/components/character/chat_field/chat_history/message/Message.vue";
+import {nextTick, onBeforeUnmount, onMounted, useTemplateRef} from "vue";
+import api from "@/js/http/api.js";
+
+const props = defineProps(['history','friendId','character']) //来自ChatField的参数
+const emit = defineEmits(['pushFrontMessage'])//接收事件
+const scrollRef = useTemplateRef('scroll-ref')
+const sentinelRef = useTemplateRef('sentinel-ref')
+let isLoading = false
+let hasMessages =true
+let lastMessageId = 0
+
+function checkSentinelVisible() {  // 判断哨兵是否能被看到
+  if (!sentinelRef.value) return false
+
+  const sentinelRect = sentinelRef.value.getBoundingClientRect()
+  const scrollRect = scrollRef.value.getBoundingClientRect()
+  return sentinelRect.top < scrollRect.bottom && sentinelRect.bottom > scrollRect.top
+}
+
+async function loadMore()
+{
+  if (isLoading || !hasMessages) return //如果没有加载消息或者消息为空，结束
+  isLoading =true
+
+  let newMessages = []
+  try{
+    const res = await api.get('/api/friend/message/get_history/',{
+      params:{
+        last_message_id:lastMessageId,
+        friend_id:props.friendId,
+      }
+    })
+    const data = res.data
+    if(data.result === 'success'){
+      newMessages = data.messages //如果成功则存储消息
+    }
+  }catch (err){
+    console.log(err)
+  }finally {
+    isLoading = false
+
+    if(newMessages.length === 0){ //如果没有新消息了就结束
+      hasMessages = false
+    }else{//否则需要将消息一条一条添加在最上面
+      const oldHeight = scrollRef.value.scrollHeight //加载前存储一下旧高度，防止出现加载出 消息后窗口自动上滑的情况
+      const oldTop = scrollRef.value.scrollTop
+
+      for(const m of newMessages){ //'of' 枚举的是元素，'in'输出的是下标
+        emit('pushFrontMessage',{
+          role:'ai',
+          content:m.output,
+          id:crypto.randomUUID(),
+        })
+        emit('pushFrontMessage',{
+          role:'user',
+          content: m.user_message,
+          id: crypto.randomUUID(),
+        })
+        lastMessageId = m.id//每次都跟新id
+      }
+      await nextTick()
+
+      const newHeight = scrollRef.value.scrollHeight
+      scrollRef.value.scrollTop = oldTop + newHeight - oldHeight //修改scrolltop的总长度，来抵着窗口的显示界面
+
+      if(checkSentinelVisible()){
+        loadMore()
+      }
+    }
+  }
+}
+
+let observer = null
+onMounted(async () => {
+  await loadMore()
+
+  observer = new IntersectionObserver(
+      entries => {
+        entries.forEach(entry => {
+          if(entry.isIntersecting){
+            loadMore()
+          }
+        })
+      },
+      {root: null, rootMargin: '2px', threshold: 0}
+  )
+
+  observer.observe(sentinelRef.value)
+})
+
+onBeforeUnmount(() => {
+  observer?.disconnect
+})
+
+async function scrollToButtom(){
+  await nextTick() //页面渲染完再滚动
+
+  scrollRef.value.scrollTop = scrollRef.value.scrollHeight
+}
+
+defineExpose ({
+  scrollToButtom,
+})
+</script>
+
+<template>
+  <div ref="scroll-ref" class = "absolute top-18 left-2 w-85 h-112 overflow-y-scroll no-scrollbar">
+    <div ref="sentinel-ref" class="h-2"></div>
+    <Message
+        v-for="message in history"
+        :key="message.id"
+        :message="message"
+        :character="character"
+    />
+  </div>
+</template>
+
+<style scoped>
+/* 隐藏 Chrome, Safari 和 Opera 的滚动条 */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* 隐藏 IE, Edge 和 Firefox 的滚动条 */
+.no-scrollbar {
+  -ms-overflow-style: none; /* IE and Edge */
+  scrollbar-width: none; /* Firefox */
+}
+</style>
+```
+
+
+### 5. 添加系统提示词和短期记忆（多轮对话）
+#### 5.1 SystemPrompt
+创建数据库`SystemPrompt`，用来存储所有agent的系统提示词。
+
+1. 写在friend.py中
+```py
+# backend/web/models/friend.py
+from django.db import models
+from django.utils.timezone import now, localtime
+
+from web.models.character import Character
+from web.models.user import UserProfile
+
+
+class Friend(models.Model):
+    me = models.ForeignKey(UserProfile, on_delete=models.CASCADE)
+    character = models.ForeignKey(Character, on_delete=models.CASCADE)
+    memory = models.TextField(default="",max_length=5000,blank=True,null=True)
+    create_time = models.DateTimeField(default=now)
+    update_time = models.DateTimeField(default=now)
+
+    def __str__(self):
+        return f"{self.character.name} - {self.me.user.username} - {localtime(self.create_time).strftime('%Y-%m-%d %H:%M:%S')}"
+
+class Message(models.Model):
+    friend = models.ForeignKey(Friend, on_delete=models.CASCADE)
+    user_message= models.TextField(max_length = 500)
+    input = models.TextField(max_length = 10000)
+    output = models.TextField(max_length = 500)
+    input_tokens = models.IntegerField(default=0)
+    output_tokens = models.IntegerField(default=0)
+    total_tokens = models.IntegerField(default=0)
+    create_time = models.DateTimeField(default=now)
+
+    def __str__(self):
+        return f"{self.friend.character.name} - {self.friend.me.user.username} - {self.user_message[:50]} - {localtime(self.create_time).strftime('%Y-%m-%d %H:%M:%S')}"
+    
+class SystemPrompt(models.Model):# 数据库存储agent提示词
+    title = models.CharField(max_length=100) #标题，区分提示词属于什么模块
+    order_number = models.IntegerField(default=0)#同一个模块可能包含多个数据 存放顺序
+    prompts = models.TextField(max_length=10000)
+    create_time = models.DateTimeField(default=now)
+    update_time = models.DateTimeField(default=now)
+    
+    def __str__(self):
+        return f"{self.title} - {self.order_number} - {self.prompts[:50]} -{localtime(self.create_time).strftime('%Y-%m-%d %H:%M:%S')}"
+
+```
+存到数据库中修改更方便。如果写到代码里，每次都要打开编辑器，修改代码后再重启服务，很麻烦.
+2. 将数据库加在admin.py中
+```py
+# backend/web/admin.py
+from django.contrib import admin
+from web.models.user import UserProfile
+from web.models.character import Character
+from web.models.friend import Friend,Message,SystemPrompt
+
+@admin.register(UserProfile)#注册
+class UserProfileAdmin(admin.ModelAdmin):
+    raw_id_fields = ('user',) #逗号必须保留！！！为一个列表，查找时页面加载100条；若写成`raw_id_fields`,则添加用户时，名字为所有用户的下拉菜单
+
+@admin.register(Character)
+class CharacterAdmin(admin.ModelAdmin):
+    raw_id_fields = ('author',)
+
+@admin.register(Friend)
+class FriendAdmin(admin.ModelAdmin):
+    raw_id_fields = ('me','character')#所有外键
+
+@admin.register(Message)
+class MessageAdmin(admin.ModelAdmin):
+    raw_id_fields = ('friend',)
+
+admin.site.register(SystemPrompt)
+```
+
+#### 5.2 将参考提示词更新到数据库中
+在`backend/web/views/friend/message/chat/chat.py`中添加系统提示词和近10条对话，由于提示词不在langgraph的流程图中，所以需要手动将信息追加到末尾；
+```py
+# backend/web/views/friend/message/chat/chat.py
+import json
+
+from django.http import StreamingHttpResponse
+from langchain_core.messages import HumanMessage, BaseMessageChunk, SystemMessage, AIMessage
+from rest_framework.renderers import BaseRenderer
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+
+from web.models.friend import Friend, Message, SystemPrompt
+from web.views.friend.message.chat.graph import ChatGraph
+
+class SSERenderer(BaseRenderer): #渲染器
+    media_type = 'text/event-stream'
+    format = 'txt'
+    def render(self,data, accepted_media_type=None, renderer_context=None):
+        return data
+
+def add_system_prompt(state,friend):#添加系统提示词
+    msgs = state['messages'] #读取之前已有的信息
+    system_prompts = SystemPrompt.objects.filter(title="回复").order_by('order_number') #将回复模块按照order_number排序
+    prompt= ''
+    for sp in system_prompts:
+        prompt += sp.prompts #连接起来
+    prompt += f'\n【角色性格】\n{friend.character.profile}\n'
+    return {'messages':[SystemMessage(prompt)] + msgs} #手动追加
+
+def add_recent_message(state,friend):#近期对话
+    msgs = state['messages']
+    message_raw = list(Message.objects.filter(friend=friend).order_by('-id')[:10])#近十轮对话,因为是从新到旧排列，需要翻转对话顺序，用list包裹
+    messages = []
+    for m in message_raw:
+        messages.append(HumanMessage(m.user_message))
+        messages.append(AIMessage(m.output))
+    return {'messages':msgs[:1] + messages + msgs[-1:]} #十轮对话加在系统提示词和用户对话之间
+
+class MessageChatView(APIView):
+    permission_classes = [IsAuthenticated]
+    renderer_classes = [SSERenderer] #引入渲染器
+    def post(self, request):
+        friend_id = request.data['friend_id']
+        message = request.data['message'].strip()
+        if not message:
+            return Response({
+                'result': '消息不得为空',
+            })
+        friends = Friend.objects.filter(pk=friend_id, me__user=request.user)
+        if not friends.exists():
+            return Response({
+                'result': '好友不存在',
+            })
+
+        # 对接大模型
+        friend = friends.first()
+        app = ChatGraph.create_app()
+
+        #构造输入,构造刚刚定义的字典
+        inputs ={
+            'messages': [HumanMessage(message)] #和构造的函数内变量名对应，封装传入的消息
+        }
+        inputs = add_system_prompt(inputs,friend) #追加系统信息
+        inputs = add_recent_message(inputs,friend)
+        
+        # res = app.invoke(inputs) #调用计算流程  非流式回复
+        # print(res['messages'][-1].content) #会返回一个
+
+        # 流式回复： yield：生成器，每执行一次，会往下进行一个yield之前的内容；
+            #生成器定义
+        def event_stream():
+            full_output = '' #存储大模型的回复
+            full_usage ={} #存储消耗量
+            for msg,metadata in app.stream(inputs,stream_mode="messages"):
+                if isinstance(msg,BaseMessageChunk): #消息是否是本次片段
+                    if msg.content:#判断是否有消息
+                        full_output += msg.content
+                        yield f"data:{json.dumps({'content':msg.content},ensure_ascii=False)}\n\n" #ensure_ascii=False 确保返回为unicode 看中文
+                    if hasattr(msg,'usage_metadata') and msg.usage_metadata: #存储usage信息
+                        full_usage = msg.usage_metadata
+            yield 'data: [DONE]\n\n' #结束格式 data: [DONE]\n\n
+            input_tokens = full_usage.get('input_tokens',0)#存储输入的token
+            output_tokens = full_usage.get('output_tokens',0)
+            total_tokens = full_usage.get('total_tokens',0) #根据后台的格式获取的
+            Message.objects.create(
+                friend=friend,
+                user_message=message,
+                input = json.dumps(
+                    [m.model_dump() for m in inputs['messages']],
+                    ensure_ascii=False,#保证输出的是中午而不是unicode
+                )[:10000],#阶段，长度和web/models/friend.py Message中定义的一致
+                output = full_output[:500],
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                total_tokens=total_tokens,
+            )
+
+        response = StreamingHttpResponse(event_stream(), content_type="text/event-stream") #返回StreamingHttpResponse
+        response['Cache-Control'] = 'no-cache'
+        return response
+```
+
+### 6. 添加Function Call
+将工具节点@tool加入流程图中`# backend/web/views/friend/message/chat/graph.py`
+1. 定义工具函数，一定要实现函数的文档；
+2. 三个引号中间的内容在python中作为函数的文档；
+3. 定义工具函数后，将函数加入工具列表
+4. 将工具列表绑定在大模型后面
+5. 路由节点判断最后一个信息是调用工具还是普通对话流程，这决定下一步进入agent调用还是结束
+6. 加入ToolNode节点；
+```py
+# backend/web/views/friend/message/chat/graph.py
+
+import os
+from pprint import pprint
+from typing import TypedDict, Annotated, Sequence
+
+from django.utils.timezone import localtime, now
+from langchain_core.messages import BaseMessage
+from langchain_core.tools import tool
+from langchain_openai import ChatOpenAI
+from langgraph.constants import START, END
+from langgraph.graph import add_messages, StateGraph
+from langgraph.prebuilt import ToolNode
+
+
+class ChatGraph: #用于封装函数逻辑
+    @staticmethod
+    def create_app():
+        @tool
+        def get_time() -> str:
+            """当需要查询精确时间时，调用此函数，返回格式为：[年-月-日 时:分:秒]"""
+            return localtime(now()).strftime('%Y-%m-%d %H:%M:%S')
+
+        tools = [get_time] #工具列表
+
+        llm = ChatOpenAI( #连接大模型
+            model='deepseek-v3.2',
+            openai_api_key=os.getenv('API_KEY'), #gentenv：获取环境变量
+            openai_api_base=os.getenv('API_BASE'),#访问的URL
+            streaming = True, # 流式输出
+            model_kwargs = {
+                "stream_options": {
+                    "include_usage": True,  # 输出token消耗数量
+                }
+            }
+        ).bind_tools(tools)
+
+        class AgentState(TypedDict): #数据类型
+            messages: Annotated[Sequence[BaseMessage], add_messages] #本质为条件更丰富的字典，add_message为它的合并方式，将agent的结果追加在sequence末尾
+
+        def model_call(state: AgentState) -> AgentState:
+            pprint(state)
+            res = llm.invoke(state['messages']) #存储返回的model
+            return {'messages': [res]} #将res追加到message的末尾
+
+        def should_continue(state:AgentState) -> str: #路由节点
+            last_message = state['messages'][-1]
+            if last_message.tool_calls:#是否有工具调用
+                return "tools"
+            return "end"
+
+        tool_node = ToolNode(tools) #工具节点，toolnode是langgraph自己实现的
+
+        graph = StateGraph(AgentState) #StateGraph创建状态图，()内为维护的状态类型
+        graph.add_node('agent',model_call) #定义自己加入的agent节点,(名字,节点函数)
+        graph.add_node('tools',tool_node) #工具节点
+
+        #加上连接的两条边
+        graph.add_edge(START,'agent')
+        graph.add_conditional_edges( #条件边
+            'agent',
+            should_continue,#条件判断节点
+            {#路由字典
+                'tools':'tools',
+                'end':END,
+            }
+        )
+        graph.add_edge('tools','agent')
+
+        return graph.compile()
+```
+
+### 7. 添加长期记忆
+1. 系统提示词数据库中添加长期记忆;
+2. 创建一个新的agent，每10轮对话更新一遍memory;
+3. 聊天的系统提示词里添加长期记忆;
