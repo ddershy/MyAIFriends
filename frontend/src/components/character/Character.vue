@@ -34,7 +34,6 @@ async function handleRemoveFriend(){
     if(res.data.result === 'success')
       emit('remove',props.friendID)
   }catch (err){
-    console.log(err)
   }
 }
 
@@ -57,7 +56,6 @@ async function openChatFiled() {//打开聊天框的逻辑
         chatFieldRef.value.showModal()
       }
     }catch (err){
-      console.log(err)
     }
   }
 }

@@ -37,7 +37,6 @@ async function loadMore() {
       newMessages = data.messages //如果成功则存储消息
     }
   } catch (err) {
-    console.log(err)
   } finally {
     isLoading = false
 

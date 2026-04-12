@@ -11,7 +11,7 @@ const isSpeaking = ref(false) //判断是否在说话
 let vadInstance = null;
 
 const startRecording = async () => {
-  const baseUrl = "http://localhost:5173/vad/";
+  const baseUrl = "http://127.0.0.1:8000/static/frontend/vad/";
   try {
     vadInstance = await MicVAD.new({
       baseAssetPath: baseUrl,
@@ -57,7 +57,6 @@ const sendToBackend = async (arrayBuffer) => {// 将音频发送到后端
   try{
     const res = await api.post('/api/friend/message/asr/asr/',formData) //调用后端api
     const data = res.data
-    console.log(data)
     if(data.result === 'success'){
       emit('send',null,data.text)
     }
