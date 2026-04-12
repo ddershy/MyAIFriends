@@ -1,3 +1,4 @@
+# backend/web/views/homepage/index.py
 from django.db.models import Q
 from rest_framework import status
 from rest_framework.views import APIView
