@@ -149,7 +149,7 @@ frontend/                           # Vue 3 前端根目录
 ├── vite.config.js                  # Vite 本地构建服务器配置 (配置了跨域 Proxy 与资源打包策略)
 │
 ├── public/                         # 不参与打包，直接 copy 到发布目标根目录的静态源文件
-│   └── vad/                        # [高频考点] Silero VAD (语音端点检测) 前端纯离线原生依赖层 
+│   └── vad/                        # [高频] Silero VAD (语音端点检测) 前端纯离线原生依赖层 
 │       ├── ort-wasm-simd-threaded.mjs # ONNX Runtime WebAssembly SIMD 加速加载器 (浏览器运行 AI 模型的基础)
 │       ├── silero_vad_legacy.onnx     # 核心语音 VAD 判定计算图模型 (识别用户的说话与停顿)
 │       └── vad.worklet.bundle.min.js  # 本地起 Audio Worklet 线程单独截取处理麦克风音频以防主渲染线程卡顿
@@ -169,7 +169,7 @@ frontend/                           # Vue 3 前端根目录
     ├── js/                         # 原生 JS 业务挂载中心
     │   ├── config/
     │   │   └── config.js           # 存放服务相关的全局默认常量 (如 API 根路由变量 URL 等)
-    │   ├── http/                   # [高频考点] 底层网络请求拦截与封包管理 
+    │   ├── http/                   # [高频] 底层网络请求拦截与封包管理 
     │   │   ├── api.js              # 基于 Axios 等封装的常规 HTTP 同步请求 (自动携带 Token, 全局报错拦截)
     │   │   └── streamApi.js        # [极其重要] 专门用于处理大模型 SSE / 流式响应的流式拉取请求，实现打字机吐字效果
     │   └── utils/
@@ -221,7 +221,7 @@ frontend/                           # Vue 3 前端根目录
 ├── vite.config.js                  # Vite 本地构建服务器配置 (配置了跨域 Proxy 与资源打包策略)
 │
 ├── public/                         # 不参与打包，直接 copy 到发布目标根目录的静态源文件
-│   └── vad/                        # [高频考点] Silero VAD (语音端点检测) 前端纯离线原生依赖层 
+│   └── vad/                        # [高频] Silero VAD (语音端点检测) 前端纯离线原生依赖层 
 │       ├── ort-wasm-simd-threaded.mjs # ONNX Runtime WebAssembly SIMD 加速加载器 (浏览器运行 AI 模型的基础)
 │       ├── silero_vad_legacy.onnx     # 核心语音 VAD 判定计算图模型 (识别用户的说话与停顿)
 │       └── vad.worklet.bundle.min.js  # 本地起 Audio Worklet 线程单独截取处理麦克风音频以防主渲染线程卡顿
@@ -241,7 +241,7 @@ frontend/                           # Vue 3 前端根目录
     ├── js/                         # 原生 JS 业务挂载中心
     │   ├── config/
     │   │   └── config.js           # 存放服务相关的全局默认常量 (如 API 根路由变量 URL 等)
-    │   ├── http/                   # [高频考点] 底层网络请求拦截与封包管理 
+    │   ├── http/                   # [高频] 底层网络请求拦截与封包管理 
     │   │   ├── api.js              # 基于 Axios 等封装的常规 HTTP 同步请求 (自动携带 Token, 全局报错拦截)
     │   │   └── streamApi.js        # 专门用于处理大模型 SSE / 流式响应的流式拉取请求，实现打字机吐字效果
     │   └── utils/
@@ -266,7 +266,7 @@ frontend/                           # Vue 3 前端根目录
     │           │       └── Message.vue # 每一条消息的气泡单元组件 (需兼容本人和机器人的不同样式)
     │           └── input_field/    # 用户输入交互操作区
     │               ├── InputField.vue  # 文字键盘输入与发送调控台
-    │               └── Microphone.vue  # [重要考点] 麦克风录音按钮组件 (内嵌 VAD 控制，按住/点击驱动说话，通过 WebAudioAPI 收集音频，联动后端 ASR)
+    │               └── Microphone.vue  # [重要] 麦克风录音按钮组件 (内嵌 VAD 控制，按住/点击驱动说话，通过 WebAudioAPI 收集音频，联动后端 ASR)
     │
     └── views/                      # 充当实际网页载体的 Page 级别巨型视图路由组件
         ├── error/
@@ -417,7 +417,7 @@ src/                                # Vue 前端核心源码目录
 │   │       ├── UserProfileIcon.vue # 资料修改图标
 │   │       └── UserSpaceIcon.vue   # 个人空间图标
 │   │
-│   └── character/                  # [极高频考点] 构成 AI 角色互动与聊天的核心复杂组件群
+│   └── character/                  # [极高频] 构成 AI 角色互动与聊天的核心复杂组件群
 │       ├── Character.vue           # 角色信息展示的外层主控组件或单一卡片容器
 │       ├── icons/                  # 聊天交互专属操作按钮图标集
 │       │   ├── KeyboardIcon.vue    # 切换至键盘文字输入图标
