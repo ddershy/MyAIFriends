@@ -4,10 +4,31 @@
 2. 支持语音识别、语音合成，实现跟虚拟人物语音通话交流；
 3. 支持function call、知识库；
 4. 后端采用Django，前端采用Vue，大模型框架采用LangChain；
-5. 内含前后端全栈代码，且已对接大模型；详细过程参考 `\MyAIFriends流程记录\MyAIFrinds.md` 系列。
+5. 内含前后端全栈代码，且已对接大模型。
 
 
-### 目录说明
+## 效果展示
+1. 初始界面：
+<img width="1919" height="1019" alt="image" src="https://github.com/user-attachments/assets/1ae165b3-55d1-4d45-950b-2794164cbeaa" />
+
+2. 搜索功能：
+<img width="1918" height="781" alt="image" src="https://github.com/user-attachments/assets/370585a8-2af4-4443-b954-12e12effd477" />
+
+3. 个人主页
+<img width="1920" height="912" alt="image" src="https://github.com/user-attachments/assets/7006a4ad-4bd1-467f-b654-14cc126c0b2e" />
+
+4. 创建角色
+<img width="1923" height="974" alt="image" src="https://github.com/user-attachments/assets/97cd375b-33a4-4473-8e71-b5f3656a903b" />
+
+5. 文本对话与记忆
+<img width="1920" height="912" alt="image" src="https://github.com/user-attachments/assets/ee375cdc-1474-472d-9fac-4afec3b70920" />
+
+
+
+
+
+
+## 目录说明
 
 *   **`backend/`**: 基于 Django 框架的后端服务。采用解耦的结构，将模型 (`models`)、视图 (`views`) 拆分为独立模块。使用 LanceDB 管理本地向量知识库 (`documents`)，并提供 RESTful/HTTP 接口供前端调用。
 *   **`frontend/`**: 基于 Vue 3 + Vite 构建的前端单页应用 (SPA)。集成 Pinia 进行状态管理，Vue Router 管理页面路由。包含语音交互 VAD 处理支持。
